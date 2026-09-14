@@ -100,3 +100,93 @@ POST /reservations
   → return reservation ID
   → automated check (ověření, že rezervace je čitelná zpět z databáze se správným stavem)
 ```
+
+---
+
+## 6. Struktura repozitáře
+
+```
+backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
+frontend/   zatím prázdné — frontend se zatím neřeší
+```
+
+Zatím je připraven jen holý základ backendu (prázdný Web API projekt + nainstalované EF Core / SQLite balíčky). Žádné entity, DbContext ani endpointy zatím nejsou definované — doména se ještě dolaďuje.
+
+## 7. Backend — jak spustit
+
+### Požadavky
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- (volitelně) [`dotnet-ef`](https://learn.microsoft.com/ef/core/cli/dotnet) globální nástroj — jen až budeme přidávat migrace: `dotnet tool install --global dotnet-ef`
+
+### Použitý stack
+- ASP.NET Core Web API (.NET 8)
+- Entity Framework Core + `Microsoft.EntityFrameworkCore.Sqlite` (databáze SQLite, soubor `parking.db`)
+- Swagger / OpenAPI (`Microsoft.AspNetCore.OpenApi`, `Swashbuckle.AspNetCore`)
+
+### Spuštění
+
+```bash
+cd backend
+dotnet restore
+dotnet run
+```
+
+Po spuštění je API dostupné na adrese vypsané v konzoli (např. `http://localhost:5xxx`), Swagger UI na `/swagger` (v Development prostředí).
+
+Connection string na SQLite databázi je v `backend/appsettings.json` pod klíčem `ConnectionStrings:DefaultConnection` (`Data Source=parking.db`). Až přibude `DbContext`, migrace se založí příkazem:
+
+```bash
+cd backend
+dotnet ef migrations add InitialCreate
+dotnet ef database update
+```
+
+### Build / test
+
+```bash
+cd backend
+dotnet build
+```
+
+## 8. Frontend
+
+Frontend zatím není řešen — složka `frontend/` je připravena jako placeholder, technologie a spuštění doplníme, až se tým shodne.
+
+---
+
+## 9. Definition of Done před C02
+
+- [x] tým 3–4 členové *(3 členi)*
+- [x] společný repo
+- [x] jasný reservation domain
+- [x] Resource + Reservation + User
+- [x] meaningful Reservation states
+- [ ] create + confirm/approve + cancel + availability
+- [ ] common overlap rule
+- [ ] 1 domain-specific business rule
+- [ ] 1 external/system boundary
+- [ ] kompletní Project Frame
+- [ ] 1 Q/C/R/L future pressure
+- [ ] 1 reviewed and integrated change
+- [ ] 1 executed engineering spike
+- [ ] spike evidence + decision
+- [x] definovaný CP1 walking skeleton
+
+### Co je hotové
+
+- **Tým a repo** — 3 členi, sdílený repozitář existuje a jde do něj commitovat.
+- **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v tomto README (sekce 1).
+- **CP1 walking skeleton** — end-to-end tok je definovaný (sekce 5), zatím není implementovaný.
+- **Backend skeleton** — prázdný ASP.NET Core Web API projekt ve `backend/` s nainstalovaným EF Core + SQLite, bez entit/DbContextu/endpointů.
+
+### Co ještě chybí
+
+Body označené doménou v README (operace, common rule, domain-specific rule, boundary) jsou zatím jen **popsané v textu**, ne implementované ani formálně ověřené — proto zůstávají neodškrtnuté, dokud nebudou splňovat požadovaný formát zadání:
+
+- **`docs/` složka** vůbec neexistuje — chybí `intent-and-change.md` (Project Frame), `architecture-and-decisions.md` a `evidence-and-evolution.md`.
+- **Project Frame** — potřeba přesně vyplnit strukturu (Purpose, Users/Stakeholders, Persistent state, Assumption, Unknown, ...) do `docs/intent-and-change.md`.
+- **Future pressure (Q/C/R/L)** — zatím nevybráno ani nezdůvodněno.
+- **Review cyklus** — zatím neproběhla žádná změna vytvořená jedním členem a zkontrolovaná druhým před integrací.
+- **Engineering spike** — zatím pouze scaffolding (prázdný projekt), ne skutečně provedený spike (A — Persistence / B — Boundary failure / C — Reproducible build). Nic z toho zatím není spuštěné a ověřené.
+- **Evidence + decision** — nezapsáno do `docs/evidence-and-evolution.md`.
+- **Common overlap rule a domain-specific rule** — formálně jde o body Project Frame, ne jen popis v README; potřeba je přenést tam.
