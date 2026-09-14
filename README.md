@@ -108,6 +108,10 @@ POST /reservations
 ```
 backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
 frontend/   zatím prázdné — frontend se zatím neřeší
+docs/
+  intent-and-change.md          Project Frame + Selected future pressure
+  architecture-and-decisions.md architektonická rozhodnutí (ADR)
+  evidence-and-evolution.md     evidence a rozhodnutí z engineering spike
 ```
 
 Zatím je připraven jen holý základ backendu (prázdný Web API projekt + nainstalované EF Core / SQLite balíčky). Žádné entity, DbContext ani endpointy zatím nejsou definované — doména se ještě dolaďuje.
@@ -161,12 +165,12 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - [x] jasný reservation domain
 - [x] Resource + Reservation + User
 - [x] meaningful Reservation states
-- [ ] create + confirm/approve + cancel + availability
-- [ ] common overlap rule
-- [ ] 1 domain-specific business rule
-- [ ] 1 external/system boundary
-- [ ] kompletní Project Frame
-- [ ] 1 Q/C/R/L future pressure
+- [x] create + confirm/approve + cancel + availability *(definováno v Project Frame, neimplementováno)*
+- [x] common overlap rule *(definováno v Project Frame)*
+- [x] 1 domain-specific business rule *(definováno v Project Frame)*
+- [x] 1 external/system boundary *(definováno v Project Frame — Notification Service)*
+- [x] kompletní Project Frame *(`docs/intent-and-change.md`)*
+- [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, kategorie Q)*
 - [ ] 1 reviewed and integrated change
 - [ ] 1 executed engineering spike
 - [ ] spike evidence + decision
@@ -175,18 +179,17 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 ### Co je hotové
 
 - **Tým a repo** — 3 členi, sdílený repozitář existuje a jde do něj commitovat.
-- **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v tomto README (sekce 1).
+- **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v README (sekce 1) i formálně v [`docs/intent-and-change.md`](docs/intent-and-change.md).
+- **Project Frame** — kompletně vyplněný v [`docs/intent-and-change.md`](docs/intent-and-change.md) včetně common rule, domain-specific rule, boundary, assumption, unknown.
+- **Future pressure** — vybrána kategorie Q (Quality/Scale) a zdůvodněna v [`docs/intent-and-change.md`](docs/intent-and-change.md).
 - **CP1 walking skeleton** — end-to-end tok je definovaný (sekce 5), zatím není implementovaný.
 - **Backend skeleton** — prázdný ASP.NET Core Web API projekt ve `backend/` s nainstalovaným EF Core + SQLite, bez entit/DbContextu/endpointů.
+- **`docs/` složka** — založena se všemi třemi soubory (`intent-and-change.md`, `architecture-and-decisions.md`, `evidence-and-evolution.md`).
 
 ### Co ještě chybí
 
-Body označené doménou v README (operace, common rule, domain-specific rule, boundary) jsou zatím jen **popsané v textu**, ne implementované ani formálně ověřené — proto zůstávají neodškrtnuté, dokud nebudou splňovat požadovaný formát zadání:
+Tyto body vyžadují skutečnou akci (kód, review druhým člověkem, spuštěný a ověřený experiment) — nejde je odškrtnout jen textem:
 
-- **`docs/` složka** vůbec neexistuje — chybí `intent-and-change.md` (Project Frame), `architecture-and-decisions.md` a `evidence-and-evolution.md`.
-- **Project Frame** — potřeba přesně vyplnit strukturu (Purpose, Users/Stakeholders, Persistent state, Assumption, Unknown, ...) do `docs/intent-and-change.md`.
-- **Future pressure (Q/C/R/L)** — zatím nevybráno ani nezdůvodněno.
-- **Review cyklus** — zatím neproběhla žádná změna vytvořená jedním členem a zkontrolovaná druhým před integrací.
+- **Review cyklus** — zatím neproběhla žádná změna vytvořená jedním členem a zkontrolovaná druhým před integrací (potřeba reálně dva lidi a PR/review).
 - **Engineering spike** — zatím pouze scaffolding (prázdný projekt), ne skutečně provedený spike (A — Persistence / B — Boundary failure / C — Reproducible build). Nic z toho zatím není spuštěné a ověřené.
-- **Evidence + decision** — nezapsáno do `docs/evidence-and-evolution.md`.
-- **Common overlap rule a domain-specific rule** — formálně jde o body Project Frame, ne jen popis v README; potřeba je přenést tam.
+- **Evidence + decision** — [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md) je založený jako šablona, ale obsah se vyplní až po skutečném provedení spike.
