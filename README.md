@@ -107,6 +107,10 @@ POST /reservations
 
 ```
 backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
+  Domain/       entity a enumy (Reservation, ReservationState)
+  Data/         ParkingDbContext
+  Migrations/   EF Core migrace
+tests/      xUnit testy (ParkingReservation.Api.Tests)
 frontend/   zatím prázdné — frontend se zatím neřeší
 docs/
   intent-and-change.md          Project Frame + Selected future pressure
@@ -114,13 +118,13 @@ docs/
   evidence-and-evolution.md     evidence a rozhodnutí z engineering spike
 ```
 
-Zatím je připraven jen holý základ backendu (prázdný Web API projekt + nainstalované EF Core / SQLite balíčky). Žádné entity, DbContext ani endpointy zatím nejsou definované — doména se ještě dolaďuje.
+Backend je zatím minimální: Web API projekt, `ParkingDbContext` a jediná entita `Reservation` (+ `ReservationState`), která vznikla v engineering spiku A (viz [docs/evidence-and-evolution.md](docs/evidence-and-evolution.md)). Další entity (`ParkingSpot`, `User`, ...) ani endpointy zatím nejsou definované — doména se ještě dolaďuje.
 
 ## 7. Backend — jak spustit
 
 ### Požadavky
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- (volitelně) [`dotnet-ef`](https://learn.microsoft.com/ef/core/cli/dotnet) globální nástroj — jen až budeme přidávat migrace: `dotnet tool install --global dotnet-ef`
+- [`dotnet-ef`](https://learn.microsoft.com/ef/core/cli/dotnet) globální nástroj (pro migrace a `dotnet ef database update`): `dotnet tool install --global dotnet-ef`
 
 ### Použitý stack
 - ASP.NET Core Web API (.NET 8)
@@ -137,20 +141,33 @@ dotnet run
 
 Po spuštění je API dostupné na adrese vypsané v konzoli (např. `http://localhost:5xxx`), Swagger UI na `/swagger` (v Development prostředí).
 
-Connection string na SQLite databázi je v `backend/appsettings.json` pod klíčem `ConnectionStrings:DefaultConnection` (`Data Source=parking.db`). Až přibude `DbContext`, migrace se založí příkazem:
+Connection string na SQLite databázi je v `backend/appsettings.json` pod klíčem `ConnectionStrings:DefaultConnection` (`Data Source=parking.db`).
+
+### Databáze a migrace
+
+Databázový soubor `parking.db` se vytvoří příkazem (spouští se z `backend/`):
 
 ```bash
 cd backend
-dotnet ef migrations add InitialCreate
+dotnet ef database update
+```
+
+Po změně entit se přidá nová migrace (`Migrations/` se commituje, `parking.db` ne):
+
+```bash
+cd backend
+dotnet ef migrations add NazevMigrace
 dotnet ef database update
 ```
 
 ### Build / test
 
 ```bash
-cd backend
-dotnet build
+dotnet build backend
+dotnet test tests/ParkingReservation.Api.Tests
 ```
+
+Testy si samy vytvoří dočasnou SQLite databázi přes migrace, takže nepotřebují předchozí `dotnet ef database update`.
 
 ## 8. Frontend
 
@@ -172,8 +189,8 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - [x] kompletní Project Frame *(`docs/intent-and-change.md`)*
 - [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, kategorie Q)*
 - [ ] 1 reviewed and integrated change
-- [ ] 1 executed engineering spike
-- [ ] spike evidence + decision
+- [x] 1 executed engineering spike *(varianta A — Persistence, issue #1)*
+- [x] spike evidence + decision *(`docs/evidence-and-evolution.md`)*
 - [x] definovaný CP1 walking skeleton
 
 ### Co je hotové
@@ -183,13 +200,10 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - **Project Frame** — kompletně vyplněný v [`docs/intent-and-change.md`](docs/intent-and-change.md) včetně common rule, domain-specific rule, boundary, assumption, unknown.
 - **Future pressure** — vybrána kategorie Q (Quality/Scale) a zdůvodněna v [`docs/intent-and-change.md`](docs/intent-and-change.md).
 - **CP1 walking skeleton** — end-to-end tok je definovaný (sekce 5), zatím není implementovaný.
-- **Backend skeleton** — prázdný ASP.NET Core Web API projekt ve `backend/` s nainstalovaným EF Core + SQLite, bez entit/DbContextu/endpointů.
+- **Backend skeleton** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext` a entitou `Reservation`, bez endpointů.
+- **Engineering spike A (Persistence)** — `Reservation` se ukládá do SQLite přes EF Core, načítá zpět a ověřuje testy; evidence a rozhodnutí jsou v [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md).
 - **`docs/` složka** — založena se všemi třemi soubory (`intent-and-change.md`, `architecture-and-decisions.md`, `evidence-and-evolution.md`).
 
 ### Co ještě chybí
 
-Tyto body vyžadují skutečnou akci (kód, review druhým člověkem, spuštěný a ověřený experiment) — nejde je odškrtnout jen textem:
-
-- **Review cyklus** — zatím neproběhla žádná změna vytvořená jedním členem a zkontrolovaná druhým před integrací (potřeba reálně dva lidi a PR/review).
-- **Engineering spike** — zatím pouze scaffolding (prázdný projekt), ne skutečně provedený spike (A — Persistence / B — Boundary failure / C — Reproducible build). Nic z toho zatím není spuštěné a ověřené.
-- **Evidence + decision** — [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md) je založený jako šablona, ale obsah se vyplní až po skutečném provedení spike.
+- **Review cyklus** — spike je hotový na větvi `feature/c01-spike-persistence`, ale zatím ho nezkontroloval a nezmergoval druhý člen týmu přes Pull Request. Po mergi odškrtnout bod „1 reviewed and integrated change".

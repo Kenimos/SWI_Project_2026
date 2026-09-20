@@ -18,3 +18,11 @@
 **Why:** tým se ještě neshodl na technologii/frameworku, priorita C01 je backend doména a datový model.
 
 **Status:** open — doplní se, až padne rozhodnutí.
+
+## ADR-003: Persistence Reservation (výsledek spike A)
+
+**Decision:** Schéma DB se spravuje přes EF Core migrace; stav rezervace se ukládá jako text; časy jsou v UTC; soubor `parking.db` se necommituje.
+
+**Why:** spike A (viz [evidence-and-evolution.md](evidence-and-evolution.md)) ověřil, že uložení a znovunačtení `Reservation` přes EF Core + SQLite funguje včetně migrací. Text ve sloupci `State` je čitelnější při ručním prohlížení DB než číslo enumu.
+
+**Status:** platí. Entity `ParkingSpot`/`User`, cizí klíče a kontrola překryvů jsou otevřené.
