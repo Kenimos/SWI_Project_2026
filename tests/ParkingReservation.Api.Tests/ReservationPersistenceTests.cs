@@ -34,12 +34,19 @@ public class ReservationPersistenceTests : IDisposable
         var end = new DateTime(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc);
         int savedId;
 
+        int spotId;
+
         // 1) uložit v jednom kontextu
         using (var writeContext = CreateMigratedContext())
         {
+            var spot = new ParkingSpot();
+            writeContext.ParkingSpots.Add(spot);
+            writeContext.SaveChanges();
+            spotId = spot.Id;
+
             var reservation = new Reservation
             {
-                SpotId = 42,
+                SpotId = spotId,
                 UserId = 7,
                 StartTime = start,
                 EndTime = end,
@@ -55,7 +62,7 @@ public class ReservationPersistenceTests : IDisposable
         var loaded = readContext.Reservations.Single(r => r.Id == savedId);
 
         Assert.True(savedId > 0);
-        Assert.Equal(42, loaded.SpotId);
+        Assert.Equal(spotId, loaded.SpotId);
         Assert.Equal(7, loaded.UserId);
         Assert.Equal(start, loaded.StartTime);
         Assert.Equal(end, loaded.EndTime);
@@ -69,9 +76,13 @@ public class ReservationPersistenceTests : IDisposable
 
         using (var writeContext = CreateMigratedContext())
         {
+            var spot = new ParkingSpot();
+            writeContext.ParkingSpots.Add(spot);
+            writeContext.SaveChanges();
+
             var reservation = new Reservation
             {
-                SpotId = 1,
+                SpotId = spot.Id,
                 UserId = 1,
                 StartTime = new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc),
                 EndTime = new DateTime(2026, 10, 1, 9, 0, 0, DateTimeKind.Utc)
