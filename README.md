@@ -107,18 +107,21 @@ POST /reservations
 
 ```
 backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
-  Domain/       entity a enumy (Reservation, ReservationState)
+  Domain/       entity a enumy (Reservation, ReservationState, ParkingSpot, ParkingSpotType)
+  Contracts/    DTOs a výsledky operací (request/response)
+  Services/     ReservationService (OP-01, OP-02)
   Data/         ParkingDbContext
   Migrations/   EF Core migrace
 tests/      xUnit testy (ParkingReservation.Api.Tests)
 frontend/   zatím prázdné — frontend se zatím neřeší
 docs/
-  intent-and-change.md          Project Frame + Selected future pressure
+  intent-and-change.md          Project Frame + Selected future pressure (C01)
   architecture-and-decisions.md architektonická rozhodnutí (ADR)
   evidence-and-evolution.md     evidence a rozhodnutí z engineering spike
+  specification.md              C02: OP-01..OP-04, BR pravidla, diagramy, baseline v0.1/v0.2
 ```
 
-Backend je zatím minimální: Web API projekt, `ParkingDbContext` a jediná entita `Reservation` (+ `ReservationState`), která vznikla v engineering spiku A (viz [docs/evidence-and-evolution.md](docs/evidence-and-evolution.md)). Další entity (`ParkingSpot`, `User`, ...) ani endpointy zatím nejsou definované — doména se ještě dolaďuje.
+Backend implementuje OP-01 Create Reservation a OP-02 Check Availability podle [docs/specification.md](docs/specification.md) (`ParkingSpot` + `Reservation` entity, `ReservationService`, endpointy `POST /reservations` a `GET /parking-spots/{id}/availability`). OP-03 Confirm a OP-04 Cancel čekají na dopsanou specifikaci těchto operací.
 
 ## 7. Backend — jak spustit
 
@@ -168,6 +171,18 @@ dotnet test tests/ParkingReservation.Api.Tests
 ```
 
 Testy si samy vytvoří dočasnou SQLite databázi přes migrace, takže nepotřebují předchozí `dotnet ef database update`.
+
+### Vyzkoušení endpointů (OP-01, OP-02)
+
+Po `dotnet ef database update` je potřeba v DB ručně založit aspoň jedno `ParkingSpot` (zatím bez endpointu na jejich vytváření), např. `sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive) VALUES ('Standard', 1);"`. Pak:
+
+```bash
+curl -X POST http://localhost:5299/reservations \
+  -H "Content-Type: application/json" \
+  -d '{"userId":1,"spotId":1,"start":"2026-10-05T10:00:00Z","end":"2026-10-05T11:00:00Z"}'
+
+curl "http://localhost:5299/parking-spots/1/availability?start=2026-10-05T10:30:00Z&end=2026-10-05T11:30:00Z"
+```
 
 ## 8. Frontend
 

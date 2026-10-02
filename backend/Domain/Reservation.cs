@@ -5,10 +5,12 @@ public class Reservation
 {
     public int Id { get; set; }
 
-    /// <summary>Rezervované parkovací místo (zatím jen číselná reference, entita ParkingSpot ještě neexistuje).</summary>
+    /// <summary>Rezervované parkovací místo.</summary>
     public int SpotId { get; set; }
 
-    /// <summary>Uživatel, který rezervaci vytvořil (zatím jen číselná reference).</summary>
+    public ParkingSpot? Spot { get; set; }
+
+    /// <summary>Uživatel, který rezervaci vytvořil (zatím jen číselná reference, entita User ještě neexistuje).</summary>
     public int UserId { get; set; }
 
     /// <summary>Začátek rezervace (UTC).</summary>
