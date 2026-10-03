@@ -112,6 +112,9 @@ Goal / user value:
 User can determine whether a ParkingSpot is available for a requested
 interval before attempting to reserve it.
 
+Trigger:
+User requests availability of ParkingSpot S for interval I.
+
 Observable requirement:
 REQ-02:
 For a valid interval, the system shall report a ParkingSpot as
@@ -169,6 +172,7 @@ Preconditions:
 - Reservation X exists.
 - Reservation X.state = DRAFT.
 - User is authorized to confirm Reservation X.
+- current time < Reservation X.start (server UTC time).
 
 Success postcondition:
 - Reservation X.state = CONFIRMED;
@@ -183,8 +187,8 @@ BR-01 (interval semantics [start,end)), BR-02 (exclusive ParkingSpot).
 
 Main success scenario:
 1. User submits the Reservation identifier.
-2. System loads Reservation X and verifies authorization and that
-   state = DRAFT.
+2. System loads Reservation X and verifies authorization, that
+   state = DRAFT and that current time < start.
 3. System verifies that the ParkingSpot of Reservation X is active.
 4. System verifies that the interval of Reservation X does not overlap
    any CONFIRMED Reservation of the same ParkingSpot (BR-01, BR-02).
@@ -196,11 +200,15 @@ Failure outcomes:
 - unauthorized User → reject; state unchanged;
 - state ≠ DRAFT (including already CONFIRMED or CANCELLED) → reject;
   state unchanged;
+- start reached or passed → reject; state unchanged;
 - ParkingSpot not active → reject; Reservation remains DRAFT;
 - interval overlaps an existing CONFIRMED Reservation of the same
   ParkingSpot → reject; Reservation remains DRAFT;
 - concurrent conflicting confirmations → exactly one succeeds, the others
-  are rejected and remain DRAFT.
+  are rejected and remain DRAFT;
+- concurrent Confirm and Cancel on the same Reservation → exactly one of
+  them takes effect (BR-03); the Reservation is never both CONFIRMED and
+  CANCELLED.
 
 Verification examples:
 DRAFT + active ParkingSpot + no overlap → CONFIRMED
@@ -209,6 +217,10 @@ Existing CONFIRMED [10:00,11:00), DRAFT [11:00,12:00) → CONFIRMED
   (boundary only touches, BR-01)
 DRAFT on inactive ParkingSpot → rejected, DRAFT
 Confirm an already CONFIRMED Reservation → rejected, state unchanged
+DRAFT with start in the past (start <= current time) → rejected, state
+  unchanged
+Concurrent Confirm and Cancel on the same DRAFT → exactly one takes
+  effect; final state is either CONFIRMED or CANCELLED, never both
 Two concurrent conflicting DRAFTs on the same ParkingSpot → exactly one
   CONFIRMED, the other rejected and DRAFT
 Two concurrent DRAFTs on different ParkingSpots → both CONFIRMED
@@ -218,8 +230,9 @@ Acceptance check:
   [start,end).
 - Observable result: the returned state is CONFIRMED on success; on
   rejection the Reservation is observably still DRAFT (or unchanged).
-- State/time: only DRAFT → CONFIRMED is possible; intervals are
-  [start,end), so touching boundaries do not conflict.
+- State/time: only DRAFT → CONFIRMED is possible, and only before
+  start; intervals are [start,end), so touching boundaries do not
+  conflict.
 - Concurrency: for conflicting concurrent attempts at most one reaches
   CONFIRMED.
 - Consistency: after any outcome BR-02 holds (no two overlapping
@@ -233,15 +246,17 @@ business outcome, not just an implementation detail.
 Assumption / unknown / TBD:
 TBD — who may confirm (the owner of the Reservation, an admin, or both);
 "authorized" is not yet defined.
-TBD — whether Confirm must be rejected once Reservation.start has been
-reached or passed (BR-03 restricts only Cancel; Confirm is unspecified).
+Assumption — Confirm is rejected once Reservation.start has been reached
+or passed (consistent with BR-03 time semantics; decided in this
+revision).
+TBD — source of "current time" (server clock assumed, UTC); clock
+accuracy/synchronization is not specified.
 TBD — whether failure of the Notification Service cancels the confirm or
 is best-effort (confirm stays valid).
 TBD — which of several conflicting concurrent confirmations wins; only
 "at most one" is specified, no fairness/ordering rule is defined.
-TBD — outcome of concurrent Confirm vs. Cancel on the same Reservation
-(BR-03 / section 0 currently say "whichever is persisted first"); must be
-settled together with OP-04.
+Concurrent Confirm vs. Cancel is governed by BR-03 (at most one of them
+succeeds); no further TBD here, OP-04 must stay consistent with it.
 Assumption — "ParkingSpot is active" is a ParkingSpot attribute; its
 definition and who changes it are not specified yet.
 ```
