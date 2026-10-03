@@ -146,30 +146,104 @@ DRAFT reservations do not block availability — only CONFIRMED ones do
 
 ### OP-03 — Confirm Reservation
 
-> **TODO (Marek):** doplnit podle vzoru v zadání C02 (sekce 6), adaptovat na ParkingSpot/BR-02.
-
 ```
 Goal / user value:
+A valid DRAFT Reservation becomes the accepted allocation of the
+ParkingSpot.
 
 Trigger:
+Authorized User requests confirmation of Reservation X.
 
 Observable requirements:
 REQ-03:
+The system shall confirm a DRAFT Reservation only when its ParkingSpot is
+active and its interval does not overlap any existing CONFIRMED
+Reservation of the same ParkingSpot.
+
 REQ-04 (concurrency):
+For concurrent confirmation attempts that conflict under BR-02, at most
+one Reservation shall reach CONFIRMED; the others are rejected and remain
+DRAFT.
 
 Preconditions:
--
+- Reservation X exists.
+- Reservation X.state = DRAFT.
+- User is authorized to confirm Reservation X.
 
 Success postcondition:
--
+- Reservation X.state = CONFIRMED;
+- Reservation X blocks its ParkingSpot for [start,end) (BR-01);
+- BR-02 remains true.
+
+State change:
+DRAFT → CONFIRMED
+
+Referenced rules:
+BR-01 (interval semantics [start,end)), BR-02 (exclusive ParkingSpot).
+
+Main success scenario:
+1. User submits the Reservation identifier.
+2. System loads Reservation X and verifies authorization and that
+   state = DRAFT.
+3. System verifies that the ParkingSpot of Reservation X is active.
+4. System verifies that the interval of Reservation X does not overlap
+   any CONFIRMED Reservation of the same ParkingSpot (BR-01, BR-02).
+5. System sets Reservation X.state = CONFIRMED.
+6. System returns the Reservation identifier and current state.
 
 Failure outcomes:
--
+- unknown Reservation → reject; nothing changes;
+- unauthorized User → reject; state unchanged;
+- state ≠ DRAFT (including already CONFIRMED or CANCELLED) → reject;
+  state unchanged;
+- ParkingSpot not active → reject; Reservation remains DRAFT;
+- interval overlaps an existing CONFIRMED Reservation of the same
+  ParkingSpot → reject; Reservation remains DRAFT;
+- concurrent conflicting confirmations → exactly one succeeds, the others
+  are rejected and remain DRAFT.
 
 Verification examples:
--
+DRAFT + active ParkingSpot + no overlap → CONFIRMED
+Existing CONFIRMED [10:00,11:00), DRAFT [10:30,11:30) → rejected, DRAFT
+Existing CONFIRMED [10:00,11:00), DRAFT [11:00,12:00) → CONFIRMED
+  (boundary only touches, BR-01)
+DRAFT on inactive ParkingSpot → rejected, DRAFT
+Confirm an already CONFIRMED Reservation → rejected, state unchanged
+Two concurrent conflicting DRAFTs on the same ParkingSpot → exactly one
+  CONFIRMED, the other rejected and DRAFT
+Two concurrent DRAFTs on different ParkingSpots → both CONFIRMED
+
+Acceptance check:
+- Meaning: confirmation commits the allocation of the ParkingSpot for
+  [start,end).
+- Observable result: the returned state is CONFIRMED on success; on
+  rejection the Reservation is observably still DRAFT (or unchanged).
+- State/time: only DRAFT → CONFIRMED is possible; intervals are
+  [start,end), so touching boundaries do not conflict.
+- Concurrency: for conflicting concurrent attempts at most one reaches
+  CONFIRMED.
+- Consistency: after any outcome BR-02 holds (no two overlapping
+  CONFIRMED Reservations on one ParkingSpot).
+
+Rationale:
+The allocation is committed only at Confirm (Create does not allocate),
+so exclusivity of the ParkingSpot is checked here; concurrency is a
+business outcome, not just an implementation detail.
 
 Assumption / unknown / TBD:
+TBD — who may confirm (the owner of the Reservation, an admin, or both);
+"authorized" is not yet defined.
+TBD — whether Confirm must be rejected once Reservation.start has been
+reached or passed (BR-03 restricts only Cancel; Confirm is unspecified).
+TBD — whether failure of the Notification Service cancels the confirm or
+is best-effort (confirm stays valid).
+TBD — which of several conflicting concurrent confirmations wins; only
+"at most one" is specified, no fairness/ordering rule is defined.
+TBD — outcome of concurrent Confirm vs. Cancel on the same Reservation
+(BR-03 / section 0 currently say "whichever is persisted first"); must be
+settled together with OP-04.
+Assumption — "ParkingSpot is active" is a ParkingSpot attribute; its
+definition and who changes it are not specified yet.
 ```
 
 ### OP-04 — Cancel Reservation
@@ -216,15 +290,19 @@ flowchart LR
 
 ### 3b. Stavový diagram Reservation
 
-> **TODO (Marek):** zkontrolovat/doplnit podmínky přechodů podle OP-03 textu.
-
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT: create
-    DRAFT --> CONFIRMED: confirm [conditions satisfied]
-    DRAFT --> CANCELLED: cancel [policy allows]
-    CONFIRMED --> CANCELLED: cancel [policy allows]
+    DRAFT --> CONFIRMED: confirm [spot active, no overlap with CONFIRMED (BR-02)]
+    DRAFT --> CANCELLED: cancel [per BR-03]
+    CONFIRMED --> CANCELLED: cancel [per BR-03]
 ```
+
+Poznámky:
+- Ze stavů `CONFIRMED` a `CANCELLED` nevede žádný přechod `confirm`; takový požadavek je odmítnut (OP-03).
+- Zamítnutý `confirm` (neaktivní spot, překryv, souběh) stav nemění, proto pro něj v diagramu není přechod — Reservation zůstává `DRAFT`.
+- `cancel` už `CANCELLED` rezervace je idempotentní úspěch bez změny stavu (BR-03), proto není vyznačen jako přechod.
+- `PENDING_APPROVAL` / Approve v diagramu není (patří až do v0.2, OP-05).
 
 ### 3c. Diagram aktivit
 
