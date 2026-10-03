@@ -308,14 +308,14 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> DRAFT: create
-    DRAFT --> CONFIRMED: confirm [spot active, no overlap with CONFIRMED (BR-02)]
+    DRAFT --> CONFIRMED: confirm [spot active, now < start, no overlap with CONFIRMED (BR-02)]
     DRAFT --> CANCELLED: cancel [per BR-03]
     CONFIRMED --> CANCELLED: cancel [per BR-03]
 ```
 
 Poznámky:
 - Ze stavů `CONFIRMED` a `CANCELLED` nevede žádný přechod `confirm`; takový požadavek je odmítnut (OP-03).
-- Zamítnutý `confirm` (neaktivní spot, překryv, souběh) stav nemění, proto pro něj v diagramu není přechod — Reservation zůstává `DRAFT`.
+- Zamítnutý `confirm` (neaktivní spot, překryv, souběh, start již nastal nebo uplynul) stav nemění, proto pro něj v diagramu není přechod — Reservation zůstává `DRAFT`.
 - `cancel` už `CANCELLED` rezervace je idempotentní úspěch bez změny stavu (BR-03), proto není vyznačen jako přechod.
 - `PENDING_APPROVAL` / Approve v diagramu není (patří až do v0.2, OP-05).
 
