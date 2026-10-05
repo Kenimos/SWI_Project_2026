@@ -263,27 +263,84 @@ definition and who changes it are not specified yet.
 
 ### OP-04 — Cancel Reservation
 
-> **TODO (Robin):** doplnit podle vzoru v zadání C02 (sekce 7) a podle odsouhlasené politiky BR-03 výše.
-
 ```
 Goal / user value:
+User can cancel a Reservation before its start, preventing a DRAFT from
+being confirmed or releasing a CONFIRMED allocation.
+
+Trigger:
+Authorized User requests cancellation of Reservation X.
 
 Observable requirement:
 REQ-05:
+The system shall transition a DRAFT or CONFIRMED Reservation to CANCELLED
+when an authorized cancellation request is made before Reservation.start
+(server UTC time). A request to cancel an already CANCELLED Reservation
+shall succeed without changing its state. Cancellation at or after start
+shall be rejected. If Confirm and Cancel race on the same Reservation, at
+most one of them succeeds (BR-03).
 
 Preconditions:
--
+- Reservation X exists.
+- User is authorized to cancel Reservation X (the authorization scope is
+  not yet defined).
+- For a non-CANCELLED Reservation, current time < Reservation.start
+  (server UTC time); otherwise the request is rejected per BR-03.
 
 Success postcondition:
--
+- For a DRAFT or CONFIRMED Reservation, Reservation X.state = CANCELLED.
+- The cancelled Reservation no longer blocks its ParkingSpot as a
+  CONFIRMED Reservation (BR-02).
+- For an already CANCELLED Reservation, the request succeeds and the
+  state remains CANCELLED (idempotent; BR-03).
+
+State change:
+DRAFT → CANCELLED
+CONFIRMED → CANCELLED
+CANCELLED → CANCELLED (idempotent success; no state change)
+
+Referenced rules:
+BR-02, BR-03
+
+Main success scenario:
+1. User submits the Reservation identifier.
+2. System loads Reservation X and verifies the user's authorization.
+3. If Reservation X is already CANCELLED, the system returns success with
+   its current state and makes no state change.
+4. Otherwise, the system verifies that Reservation X is DRAFT or
+   CONFIRMED and that current time < Reservation X.start.
+5. The system persists Reservation X.state = CANCELLED. If Confirm and
+   Cancel race on X, only the request persisted first succeeds (BR-03).
+6. System returns the Reservation identifier and current state.
 
 Failure outcomes:
--
+- unknown Reservation → reject; nothing changes;
+- unauthorized User → reject; state unchanged;
+- Reservation.start reached or passed for a non-CANCELLED Reservation →
+  reject; state unchanged;
+- a concurrent Confirm request was persisted first → reject this Cancel
+  request; no second transition occurs, and the winner determines the
+  resulting state (BR-03).
 
 Verification examples:
--
+DRAFT + current time < start → CANCELLED
+CONFIRMED + current time < start → CANCELLED; no longer blocks the spot
+CANCELLED + current time >= start → success; remains CANCELLED
+DRAFT or CONFIRMED + current time >= start → rejected; state unchanged
+Concurrent Confirm and Cancel on the same Reservation → at most one
+  succeeds; the final state is CONFIRMED or CANCELLED, never both
+
+Rationale:
+Cancellation is an explicit state transition rather than deletion.
+Idempotent success for an already CANCELLED Reservation makes a repeated
+request safe, while BR-03 prevents cancellation once the reserved interval
+has started.
 
 Assumption / unknown / TBD:
+TBD — who is authorized to cancel (the Reservation owner, an admin, or
+both) is not defined here.
+TBD — whether cancellation sends a notification and how Notification
+Service failure affects the result.
 ```
 
 ---
@@ -292,15 +349,19 @@ Assumption / unknown / TBD:
 
 ### 3a. Use case diagram (aktéři a cíle)
 
-> **TODO (Robin):** zkontrolovat/doplnit podle finálních operací.
-
 ```mermaid
 flowchart LR
-    Driver((Řidič))
-    Driver --> UC1[Create Reservation]
-    Driver --> UC2[Check Availability]
-    Driver --> UC3[Confirm Reservation]
-    Driver --> UC4[Cancel Reservation]
+    User((User / Driver))
+    subgraph System["Parking Reservation System"]
+        UC1([Create Reservation])
+        UC2([Check Availability])
+        UC3([Confirm Reservation])
+        UC4([Cancel Reservation])
+    end
+    User --> UC1
+    User --> UC2
+    User --> UC3
+    User --> UC4
 ```
 
 ### 3b. Stavový diagram Reservation
@@ -321,16 +382,33 @@ Poznámky:
 
 ### 3c. Diagram aktivit
 
-> **TODO (Robin):** doplnit diagram aktivit pro Confirm a/nebo Cancel (tenhle je jen pro Create jako ukázka).
-
 ```mermaid
 flowchart TD
-    A[Start] --> B[Vyplnit resource + interval]
-    B --> C{Validní?}
-    C -- ne --> X[Odmítnuto]
-    C -- ano --> D[Vytvořit DRAFT]
-    D --> E[Konec]
+    Start([Start]) --> Submit[Submit Reservation ID]
+    Submit --> Exists{Reservation exists?}
+    Exists -- no --> NotFound[Reject: unknown Reservation]
+    Exists -- yes --> Authorized{User authorized to cancel?}
+    Authorized -- no --> Unauthorized[Reject: unauthorized]
+    Authorized -- yes --> Cancelled{State = CANCELLED?}
+    Cancelled -- yes --> Idempotent[Return success; state unchanged]
+    Cancelled -- no --> Cancelable{State = DRAFT or CONFIRMED?}
+    Cancelable -- no --> InvalidState[Reject; state unchanged]
+    Cancelable -- yes --> BeforeStart{Server UTC now < start?}
+    BeforeStart -- no --> TooLate[Reject; state unchanged]
+    BeforeStart -- yes --> Persist[Attempt to persist state = CANCELLED]
+    Persist --> Race{Outcome under BR-03?}
+    Race -- Cancel persisted first --> Success[Return success; state = CANCELLED]
+    Race -- Confirm persisted first --> Conflict[Reject Cancel; winner's state remains]
 ```
+
+The use-case actor covers the user goals in OP-01 through OP-04; operation
+authorization requirements and the still-undefined cancellation scope are
+specified in the operation text.
+
+The activity diagram shows the idempotent path before the start-time check:
+an already CANCELLED Reservation succeeds without a state change, as
+required by BR-03. A competing Confirm that is persisted first causes the
+Cancel request to be rejected (BR-03).
 
 ---
 
@@ -340,9 +418,9 @@ flowchart TD
 |---|---|---|
 | Create vs. Confirm | ☐ | |
 | Availability vs. Confirm | ☐ | |
-| Cancel vs. stavový diagram | ☐ | |
+| Cancel vs. stavový diagram | ☑ | OP-04 state changes match BR-03 and section 3b. |
 | Význam intervalů napříč operacemi | ☐ | |
-| Use-case diagram vs. text | ☐ | |
+| Use-case diagram vs. text | ☑ | The diagram covers the user goals in OP-01 through OP-04. |
 | Požadavek vs. návrhové rozhodnutí | ☐ | |
 | Nejistota vs. vymyšlená přesnost | ☐ | |
 
