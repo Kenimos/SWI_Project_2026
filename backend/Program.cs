@@ -15,7 +15,13 @@ builder.Services.AddDbContext<ParkingDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddSingleton<IClock, SystemClock>();
-builder.Services.AddScoped<ReservationService>();
+
+// v0.2 - délka schvalovacího okna (REQ-08) je v docs/specification.md výslovně
+// TBD; "Reservations:ApprovalWindowHours" v appsettings.json je jen demonstrační
+// placeholder (default 24h), ne odsouhlasené business pravidlo.
+var approvalWindow = TimeSpan.FromHours(builder.Configuration.GetValue("Reservations:ApprovalWindowHours", 24.0));
+builder.Services.AddScoped(sp =>
+    new ReservationService(sp.GetRequiredService<ParkingDbContext>(), sp.GetRequiredService<IClock>(), approvalWindow));
 
 var app = builder.Build();
 
@@ -106,6 +112,7 @@ app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationReq
             CancelReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
             CancelReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
             CancelReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            CancelReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
             _ => Results.Json(new { error = "unknown" }, statusCode: 400)
         };
     }
@@ -113,6 +120,53 @@ app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationReq
     return Results.Ok(new { id, state = result.State!.Value.ToString() });
 })
 .WithName("CancelReservation")
+.WithOpenApi();
+
+// OP-05 — Approve Reservation: approve-větev (docs/specification.md, v0.2)
+app.MapPost("/reservations/{id:int}/approve", async (int id, ApproveReservationRequest request, ReservationService service) =>
+{
+    var result = await service.ApproveReservationAsync(id, request.ApproverUserId);
+
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ApproveReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            ApproveReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ApproveReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
+            ApproveReservationError.Expired => Results.Json(new { error = "expired" }, statusCode: 409),
+            ApproveReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            ApproveReservationError.SpotInactive => Results.Json(new { error = "spot_inactive" }, statusCode: 409),
+            ApproveReservationError.Overlap => Results.Json(new { error = "overlap" }, statusCode: 409),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("ApproveReservation")
+.WithOpenApi();
+
+// OP-05 — Approve Reservation: reject-větev (docs/specification.md, v0.2)
+app.MapPost("/reservations/{id:int}/reject", async (int id, RejectReservationRequest request, ReservationService service) =>
+{
+    var result = await service.RejectReservationAsync(id, request.ApproverUserId);
+
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            RejectReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            RejectReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            RejectReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
+            RejectReservationError.Expired => Results.Json(new { error = "expired" }, statusCode: 409),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("RejectReservation")
 .WithOpenApi();
 
 app.Run();

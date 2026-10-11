@@ -21,6 +21,11 @@ public class ReservationConfirmCancelTests : IDisposable
     // Pevný referenční okamžik "teď", vůči kterému jsou start/end testů počítané.
     private static readonly DateTime Now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
+    // Placeholder hodnota pro testy OP-03/OP-04 (bez schvalování) - přesná délka
+    // je TBD, viz OP-05 v docs/specification.md. Testy expirace (OP-05) používají
+    // vlastní, mnohem kratší okno.
+    private static readonly TimeSpan ApprovalWindow = TimeSpan.FromHours(24);
+
     public ReservationConfirmCancelTests()
     {
         var options = new DbContextOptionsBuilder<ParkingDbContext>()
@@ -29,7 +34,7 @@ public class ReservationConfirmCancelTests : IDisposable
         _db = new ParkingDbContext(options);
         _db.Database.Migrate();
         _clock = new FakeClock { UtcNow = Now };
-        _service = new ReservationService(_db, _clock);
+        _service = new ReservationService(_db, _clock, ApprovalWindow);
     }
 
     private async Task<ParkingSpot> AddSpotAsync(bool isActive = true, ParkingSpotType type = ParkingSpotType.Standard)
@@ -161,8 +166,8 @@ public class ReservationConfirmCancelTests : IDisposable
         var optionsB = new DbContextOptionsBuilder<ParkingDbContext>().UseSqlite($"Data Source={_dbPath}").Options;
         using var dbA = new ParkingDbContext(optionsA);
         using var dbB = new ParkingDbContext(optionsB);
-        var serviceA = new ReservationService(dbA, _clock);
-        var serviceB = new ReservationService(dbB, _clock);
+        var serviceA = new ReservationService(dbA, _clock, ApprovalWindow);
+        var serviceB = new ReservationService(dbB, _clock, ApprovalWindow);
 
         var taskA = serviceA.ConfirmReservationAsync(draftA.Id, userId: 1);
         var taskB = serviceB.ConfirmReservationAsync(draftB.Id, userId: 1);

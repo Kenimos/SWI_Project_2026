@@ -13,4 +13,10 @@ public class ParkingSpot
 
     /// <summary>Odpovídá precondition "ParkingSpot is active" v OP-03 (Confirm).</summary>
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// v0.2 (BR-05): pokud true, Confirm (OP-03) nevede přímo do CONFIRMED,
+    /// ale do PENDING_APPROVAL - teprve Approve (OP-05) může potvrdit.
+    /// </summary>
+    public bool RequiresApproval { get; set; } = false;
 }

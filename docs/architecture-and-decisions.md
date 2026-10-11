@@ -34,3 +34,11 @@
 **Why:** REQ-04 a BR-03 vyžadují, aby při souběžných požadavcích na totéž místo vyhrál nejvýše jeden. Pro C02 stačí zámek v rámci jednoho procesu — ověřeno testem se dvěma skutečně paralelními `Task`.
 
 **Status:** platí pro C02. Funguje jen uvnitř jedné instance aplikace/jedné DB — při více instancích (škálování) toto nestačí. To je architektonický driver pro C03, navazuje na zvolenou future pressure **Q** v [intent-and-change.md](intent-and-change.md).
+
+## ADR-005: Schvalovací proces (OP-05, v0.2)
+
+**Decision:** `ParkingSpot.RequiresApproval` (bool) rozhoduje, jestli Confirm (OP-03) vede přímo do `CONFIRMED`, nebo do `PENDING_APPROVAL`. Expirace schvalovacího okna (REQ-08) se řeší líně — kontroluje se při každém dalším dotyku rezervace (Approve/Reject/Cancel), ne časovačem/background jobem. Délka okna je konfigurovatelná (`Reservations:ApprovalWindowHours` v `appsettings.json`), defaultně 24h.
+
+**Why:** Zadání C02 výslovně nechce architektonickou optimalizaci v této fázi ("Neřešte ještě ideální architekturu"). Líné vyhodnocení je nejjednodušší způsob, jak pozorovatelné chování (REQ-08) demonstrovat bez stavění schedulerového subsystému.
+
+**Status:** platí pro C02. Reálný timer/scheduler, který by expiraci vyřídil i bez dalšího požadavku (a mohl by spustit notifikaci), je otevřený architektonický driver pro C03 — stejně jako přesná délka okna, která je v `docs/specification.md` (OP-05) výslovně TBD, ne odsouhlasené pravidlo.
