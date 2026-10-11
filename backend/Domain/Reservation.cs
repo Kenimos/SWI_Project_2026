@@ -20,4 +20,11 @@ public class Reservation
     public DateTime EndTime { get; set; }
 
     public ReservationState State { get; set; } = ReservationState.Draft;
+
+    /// <summary>
+    /// v0.2: okamžik, kdy rezervace přešla do PENDING_APPROVAL. Null mimo
+    /// tento stav. Slouží k líné detekci vypršení schvalovacího okna
+    /// (REQ-08) - viz docs/specification.md, OP-05.
+    /// </summary>
+    public DateTime? PendingApprovalSince { get; set; }
 }

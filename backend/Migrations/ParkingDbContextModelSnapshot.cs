@@ -26,6 +26,9 @@ namespace ParkingReservation.Api.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("RequiresApproval")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -43,6 +46,9 @@ namespace ParkingReservation.Api.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime>("EndTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PendingApprovalSince")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("SpotId")

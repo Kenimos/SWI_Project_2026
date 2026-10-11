@@ -70,7 +70,10 @@ public enum CancelReservationError
 {
     NotFound,
     Unauthorized,
-    TooLate
+    TooLate,
+
+    /// <summary>v0.2: REJECTED/EXPIRED jsou terminální - není co rušit (BR-03 v0.2).</summary>
+    InvalidState
 }
 
 public record CancelReservationResult
@@ -82,4 +85,47 @@ public record CancelReservationResult
     public static CancelReservationResult Ok(ReservationState state) => new() { Success = true, State = state };
 
     public static CancelReservationResult Fail(CancelReservationError error) => new() { Success = false, Error = error };
+}
+
+/// <summary>v0.2 — Důvod odmítnutí OP-05 Approve (approve-větev), viz docs/specification.md.</summary>
+public enum ApproveReservationError
+{
+    NotFound,
+    Unauthorized,
+    InvalidState,
+    Expired,
+    TooLate,
+    SpotInactive,
+    Overlap
+}
+
+public record ApproveReservationResult
+{
+    public bool Success { get; init; }
+    public ReservationState? State { get; init; }
+    public ApproveReservationError? Error { get; init; }
+
+    public static ApproveReservationResult Ok(ReservationState state) => new() { Success = true, State = state };
+
+    public static ApproveReservationResult Fail(ApproveReservationError error) => new() { Success = false, Error = error };
+}
+
+/// <summary>v0.2 — Důvod odmítnutí OP-05 Reject (reject-větev), viz docs/specification.md.</summary>
+public enum RejectReservationError
+{
+    NotFound,
+    Unauthorized,
+    InvalidState,
+    Expired
+}
+
+public record RejectReservationResult
+{
+    public bool Success { get; init; }
+    public ReservationState? State { get; init; }
+    public RejectReservationError? Error { get; init; }
+
+    public static RejectReservationResult Ok(ReservationState state) => new() { Success = true, State = state };
+
+    public static RejectReservationResult Fail(RejectReservationError error) => new() { Success = false, Error = error };
 }

@@ -109,7 +109,7 @@ POST /reservations
 backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
   Domain/       entity a enumy (Reservation, ReservationState, ParkingSpot, ParkingSpotType)
   Contracts/    DTOs a výsledky operací (request/response)
-  Services/     ReservationService (OP-01, OP-02)
+  Services/     ReservationService (OP-01..OP-05), IClock, SpotLocks
   Data/         ParkingDbContext
   Migrations/   EF Core migrace
 tests/      xUnit testy (ParkingReservation.Api.Tests)
@@ -121,7 +121,7 @@ docs/
   specification.md              C02: OP-01..OP-04, BR pravidla, diagramy, baseline v0.1/v0.2
 ```
 
-Backend implementuje OP-01 Create Reservation a OP-02 Check Availability podle [docs/specification.md](docs/specification.md) (`ParkingSpot` + `Reservation` entity, `ReservationService`, endpointy `POST /reservations` a `GET /parking-spots/{id}/availability`). OP-03 Confirm a OP-04 Cancel čekají na dopsanou specifikaci těchto operací.
+Backend implementuje všech pět operací podle [docs/specification.md](docs/specification.md) — Baseline v0.1 (OP-01 Create, OP-02 Check Availability, OP-03 Confirm, OP-04 Cancel) i Baseline v0.2, schvalovací proces (OP-05 Approve/Reject, stav `PENDING_APPROVAL`/`REJECTED`/`EXPIRED` pro `ParkingSpot.RequiresApproval = true`).
 
 ## 7. Backend — jak spustit
 
@@ -172,16 +172,42 @@ dotnet test tests/ParkingReservation.Api.Tests
 
 Testy si samy vytvoří dočasnou SQLite databázi přes migrace, takže nepotřebují předchozí `dotnet ef database update`.
 
-### Vyzkoušení endpointů (OP-01, OP-02)
+### Vyzkoušení endpointů
 
-Po `dotnet ef database update` je potřeba v DB ručně založit aspoň jedno `ParkingSpot` (zatím bez endpointu na jejich vytváření), např. `sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive) VALUES ('Standard', 1);"`. Pak:
+Po `dotnet ef database update` je potřeba v DB ručně založit aspoň jedno `ParkingSpot` (zatím bez endpointu na jejich vytváření), např.:
+
+```bash
+sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive, RequiresApproval) VALUES ('Standard', 1, 0);"
+```
+
+**OP-01 Create + OP-02 Check Availability + OP-03 Confirm (bez schvalování) + OP-04 Cancel:**
 
 ```bash
 curl -X POST http://localhost:5299/reservations \
   -H "Content-Type: application/json" \
-  -d '{"userId":1,"spotId":1,"start":"2026-10-05T10:00:00Z","end":"2026-10-05T11:00:00Z"}'
+  -d '{"userId":1,"spotId":1,"start":"2030-01-01T10:00:00Z","end":"2030-01-01T11:00:00Z"}'
 
-curl "http://localhost:5299/parking-spots/1/availability?start=2026-10-05T10:30:00Z&end=2026-10-05T11:30:00Z"
+curl "http://localhost:5299/parking-spots/1/availability?start=2030-01-01T10:30:00Z&end=2030-01-01T11:30:00Z"
+
+curl -X POST http://localhost:5299/reservations/1/confirm -H "Content-Type: application/json" -d '{"userId":1}'
+
+curl -X POST http://localhost:5299/reservations/1/cancel -H "Content-Type: application/json" -d '{"userId":1}'
+```
+
+**OP-05 Approve/Reject (`ParkingSpot.RequiresApproval = 1`):** Confirm nevede přímo do `Confirmed`, ale do `PendingApproval`; teprve Approve/Reject rozhodne.
+
+```bash
+sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive, RequiresApproval) VALUES ('Standard', 1, 1);"
+
+curl -X POST http://localhost:5299/reservations -H "Content-Type: application/json" \
+  -d '{"userId":1,"spotId":2,"start":"2030-01-01T10:00:00Z","end":"2030-01-01T11:00:00Z"}'
+
+curl -X POST http://localhost:5299/reservations/2/confirm -H "Content-Type: application/json" -d '{"userId":1}'
+# -> {"id":2,"state":"PendingApproval"}
+
+curl -X POST http://localhost:5299/reservations/2/approve -H "Content-Type: application/json" -d '{"approverUserId":9}'
+# -> {"id":2,"state":"Confirmed"}
+# alternativně: curl -X POST http://localhost:5299/reservations/2/reject -H "Content-Type: application/json" -d '{"approverUserId":9}'
 ```
 
 ## 8. Frontend
