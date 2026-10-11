@@ -434,7 +434,7 @@ Cancel request to be rejected (BR-03).
 | Požadavek vs. návrhové rozhodnutí | ☑ | Žádný požadavek nepředepisuje implementaci/technologii (DB, framework) — jen pozorovatelné chování. |
 | Nejistota vs. vymyšlená přesnost | ☑ | Nejasné body (autorizace, Notification Service, přesnost hodin, fairness při souběhu) jsou všude explicitně označené jako Assumption/TBD, ne vymyšlené natvrdo. |
 
-**Schváleno jako Specification Baseline v0.1:** ☐ ano / datum: _____ / kým: _____
+**Schváleno jako Specification Baseline v0.1:** ☑ ano / datum: 11.10.2026 / kým: Jan Ječmínek
 
 ---
 
