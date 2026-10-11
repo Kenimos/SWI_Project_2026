@@ -24,7 +24,7 @@ public class ReservationServiceTests : IDisposable
             .Options;
         _db = new ParkingDbContext(options);
         _db.Database.Migrate();
-        _service = new ReservationService(_db);
+        _service = new ReservationService(_db, new FakeClock { UtcNow = DateTime.UtcNow });
     }
 
     private async Task<ParkingSpot> AddSpotAsync(ParkingSpotType type = ParkingSpotType.Standard)

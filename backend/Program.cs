@@ -14,6 +14,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<ParkingDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddScoped<ReservationService>();
 
 var app = builder.Build();
@@ -67,6 +68,51 @@ app.MapGet("/parking-spots/{spotId:int}/availability", async (int spotId, DateTi
     return Results.Ok(new { available = result.Available });
 })
 .WithName("CheckAvailability")
+.WithOpenApi();
+
+// OP-03 — Confirm Reservation (docs/specification.md)
+app.MapPost("/reservations/{id:int}/confirm", async (int id, ConfirmReservationRequest request, ReservationService service) =>
+{
+    var result = await service.ConfirmReservationAsync(id, request.UserId);
+
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ConfirmReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            ConfirmReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ConfirmReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
+            ConfirmReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            ConfirmReservationError.SpotInactive => Results.Json(new { error = "spot_inactive" }, statusCode: 409),
+            ConfirmReservationError.Overlap => Results.Json(new { error = "overlap" }, statusCode: 409),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("ConfirmReservation")
+.WithOpenApi();
+
+// OP-04 — Cancel Reservation (docs/specification.md)
+app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationRequest request, ReservationService service) =>
+{
+    var result = await service.CancelReservationAsync(id, request.UserId);
+
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            CancelReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            CancelReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            CancelReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("CancelReservation")
 .WithOpenApi();
 
 app.Run();

@@ -26,3 +26,11 @@
 **Why:** spike A (viz [evidence-and-evolution.md](evidence-and-evolution.md)) ověřil, že uložení a znovunačtení `Reservation` přes EF Core + SQLite funguje včetně migrací. Text ve sloupci `State` je čitelnější při ručním prohlížení DB než číslo enumu.
 
 **Status:** platí. Entity `ParkingSpot`/`User`, cizí klíče a kontrola překryvů jsou otevřené.
+
+## ADR-004: Souběh Confirm/Cancel (OP-03, OP-04)
+
+**Decision:** `ReservationService` serializuje Confirm a Cancel přes `SpotLocks` — in-memory `SemaphoreSlim` na jedno `ParkingSpot.Id`. "Current time" jde přes `IClock` (ne přímo `DateTime.UtcNow`), aby šlo v testech řídit čas deterministicky.
+
+**Why:** REQ-04 a BR-03 vyžadují, aby při souběžných požadavcích na totéž místo vyhrál nejvýše jeden. Pro C02 stačí zámek v rámci jednoho procesu — ověřeno testem se dvěma skutečně paralelními `Task`.
+
+**Status:** platí pro C02. Funguje jen uvnitř jedné instance aplikace/jedné DB — při více instancích (škálování) toto nestačí. To je architektonický driver pro C03, navazuje na zvolenou future pressure **Q** v [intent-and-change.md](intent-and-change.md).

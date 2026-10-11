@@ -416,13 +416,13 @@ Cancel request to be rejected (BR-03).
 
 | Kontrola | Stav | Poznámka |
 |---|---|---|
-| Create vs. Confirm | ☐ | |
-| Availability vs. Confirm | ☐ | |
+| Create vs. Confirm | ☑ | Create (OP-01) nikdy nealokuje spot (žádná kontrola overlapu); exkluzivita (BR-02) se vynucuje až při Confirm (OP-03). Konzistentní. |
+| Availability vs. Confirm | ⚠ | **Otevřený nesoulad, nerozhodnuto:** OP-02 považuje místo za dostupné jen podle CONFIRMED rezervací, nekontroluje `ParkingSpot.IsActive`. Neaktivní (OUT_OF_SERVICE) spot bez CONFIRMED rezervace tak vyjde `available: true`, ale stejný požadavek by u OP-03 skončil `SpotInactive`. Tým musí rozhodnout, jestli OP-02 má `IsActive` taky zohledňovat, nebo je to záměr (např. "dostupnost" a "lze potvrdit" jsou různé otázky). Implementace (`ReservationService`) dnes odpovídá zapsanému textu, ne opravuje ho. |
 | Cancel vs. stavový diagram | ☑ | OP-04 state changes match BR-03 and section 3b. |
-| Význam intervalů napříč operacemi | ☐ | |
+| Význam intervalů napříč operacemi | ☑ | OP-01, OP-02, OP-03 důsledně používají `[start,end)` (BR-01); hraniční příklad v OP-03 (dotyk v 11:00) odpovídá OP-02. |
 | Use-case diagram vs. text | ☑ | The diagram covers the user goals in OP-01 through OP-04. |
-| Požadavek vs. návrhové rozhodnutí | ☐ | |
-| Nejistota vs. vymyšlená přesnost | ☐ | |
+| Požadavek vs. návrhové rozhodnutí | ☑ | Žádný požadavek nepředepisuje implementaci/technologii (DB, framework) — jen pozorovatelné chování. |
+| Nejistota vs. vymyšlená přesnost | ☑ | Nejasné body (autorizace, Notification Service, přesnost hodin, fairness při souběhu) jsou všude explicitně označené jako Assumption/TBD, ne vymyšlené natvrdo. |
 
 **Schváleno jako Specification Baseline v0.1:** ☐ ano / datum: _____ / kým: _____
 
