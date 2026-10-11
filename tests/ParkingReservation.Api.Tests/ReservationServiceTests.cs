@@ -218,6 +218,23 @@ public class ReservationServiceTests : IDisposable
         Assert.Equal(AvailabilityError.SpotNotFound, result.Error);
     }
 
+    [Fact]
+    public async Task Availability_inactive_spot_is_unavailable_even_without_reservations()
+    {
+        // REQ-02 (upraveno 2026-10-11): neaktivní spot je vždy UNAVAILABLE,
+        // bez ohledu na to, že nemá žádnou rezervaci.
+        var spot = await AddSpotAsync(ParkingSpotType.Standard);
+        spot.IsActive = false;
+        await _db.SaveChangesAsync();
+
+        var result = await _service.CheckAvailabilityAsync(spot.Id,
+            new DateTime(2026, 10, 1, 10, 0, 0, DateTimeKind.Utc),
+            new DateTime(2026, 10, 1, 11, 0, 0, DateTimeKind.Utc));
+
+        Assert.True(result.Success);
+        Assert.False(result.Available);
+    }
+
     public void Dispose()
     {
         _db.Dispose();

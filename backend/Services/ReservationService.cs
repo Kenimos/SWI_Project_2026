@@ -78,13 +78,20 @@ public class ReservationService
             return AvailabilityResult.Fail(AvailabilityError.InvalidInterval);
         }
 
-        var spotExists = await _db.ParkingSpots.AnyAsync(s => s.Id == spotId);
-        if (!spotExists)
+        var spot = await _db.ParkingSpots.FindAsync(spotId);
+        if (spot is null)
         {
             return AvailabilityResult.Fail(AvailabilityError.SpotNotFound);
         }
 
-        // REQ-02: unavailable, pokud se interval překrývá s libovolnou CONFIRMED
+        // REQ-02: neaktivní místo je vždy UNAVAILABLE, bez ohledu na rezervace
+        // (stejný invariant jako v OP-03 - viz konzistenční kontrola v sekci 4).
+        if (!spot.IsActive)
+        {
+            return AvailabilityResult.Ok(available: false);
+        }
+
+        // Jinak unavailable, pokud se interval překrývá s libovolnou CONFIRMED
         // rezervací téhož místa. Překryv dvou [start,end) intervalů (BR-01):
         // existing.Start < end && start < existing.End.
         var hasOverlap = await _db.Reservations.AnyAsync(r =>

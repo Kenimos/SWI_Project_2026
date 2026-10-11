@@ -117,9 +117,10 @@ User requests availability of ParkingSpot S for interval I.
 
 Observable requirement:
 REQ-02:
-For a valid interval, the system shall report a ParkingSpot as
-unavailable if the interval overlaps any CONFIRMED Reservation of that
-ParkingSpot; otherwise it shall report it as available.
+The system shall report a ParkingSpot as unavailable if the ParkingSpot
+is not active, or if the interval overlaps any CONFIRMED Reservation of
+that ParkingSpot; otherwise, for a valid interval, it shall report it as
+available.
 
 Preconditions:
 - ParkingSpot exists.
@@ -138,9 +139,18 @@ Existing CONFIRMED: [10:00,11:00)
 query [09:00,10:00) → AVAILABLE
 query [10:30,11:30) → UNAVAILABLE
 query [11:00,12:00) → AVAILABLE
+inactive ParkingSpot, no reservations at all → UNAVAILABLE
 
 Accepted semantics:
 Intervals are half-open: [start,end).
+
+Rationale:
+A ParkingSpot that is not active (OUT_OF_SERVICE) is never offered as
+available, regardless of its reservations — consistent with the
+invariant from C01 (docs/intent-and-change.md) and with OP-03, which
+also rejects Confirm on an inactive ParkingSpot. Create (OP-01)
+deliberately stays unaffected: it only records intent and does not
+allocate, so it is still allowed on an inactive ParkingSpot.
 
 Assumption / unknown / TBD:
 DRAFT reservations do not block availability — only CONFIRMED ones do
@@ -417,7 +427,7 @@ Cancel request to be rejected (BR-03).
 | Kontrola | Stav | Poznámka |
 |---|---|---|
 | Create vs. Confirm | ☑ | Create (OP-01) nikdy nealokuje spot (žádná kontrola overlapu); exkluzivita (BR-02) se vynucuje až při Confirm (OP-03). Konzistentní. |
-| Availability vs. Confirm | ⚠ | **Otevřený nesoulad, nerozhodnuto:** OP-02 považuje místo za dostupné jen podle CONFIRMED rezervací, nekontroluje `ParkingSpot.IsActive`. Neaktivní (OUT_OF_SERVICE) spot bez CONFIRMED rezervace tak vyjde `available: true`, ale stejný požadavek by u OP-03 skončil `SpotInactive`. Tým musí rozhodnout, jestli OP-02 má `IsActive` taky zohledňovat, nebo je to záměr (např. "dostupnost" a "lze potvrdit" jsou různé otázky). Implementace (`ReservationService`) dnes odpovídá zapsanému textu, ne opravuje ho. |
+| Availability vs. Confirm | ☑ | **Vyřešeno (odsouhlaseno týmem 2026-10-11):** REQ-02 nově zohledňuje `ParkingSpot.IsActive` stejně jako OP-03 — neaktivní spot je vždy `UNAVAILABLE`, bez ohledu na rezervace. Create (OP-01) zůstává beze změny, protože jen zaznamenává záměr a nic nealokuje. |
 | Cancel vs. stavový diagram | ☑ | OP-04 state changes match BR-03 and section 3b. |
 | Význam intervalů napříč operacemi | ☑ | OP-01, OP-02, OP-03 důsledně používají `[start,end)` (BR-01); hraniční příklad v OP-03 (dotyk v 11:00) odpovídá OP-02. |
 | Use-case diagram vs. text | ☑ | The diagram covers the user goals in OP-01 through OP-04. |
