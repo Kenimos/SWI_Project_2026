@@ -19,6 +19,28 @@ Observed result:
 - `dotnet ef database update` proběhl (globální `dotnet-ef` 9.0.9 funguje s EF Core 8.0.10 balíčky), vznikla tabulka `Reservations` (`Id` INTEGER PK AUTOINCREMENT, `SpotId`, `UserId`, `StartTime` TEXT, `EndTime` TEXT, `State` TEXT) a `__EFMigrationsHistory`.
 - SQLite ukládá `DateTime` jako TEXT; v testech držíme časy v UTC, aby se hodnoty vrátily přesně.
 
+## C04 — Quality and Measurement Traceability
+
+The supplied assessment form marks C04 as `N/A`: the provided exercise documents do not contain a corresponding C04 quality-and-measurement assignment. No project quality criterion or measurement target is invented here. This is a source-material limitation, not evidence that an unrequested project artifact was omitted.
+
+## C03 — Architecture Evidence
+
+Baseline: v0.2. The selected scenario is OP-03 Confirm Reservation with BR-01, BR-02, BR-05, and the related OP-04 race behavior.
+
+The AS-IS trace, architecture drivers, alternatives, ADR-006, structural/runtime views, ownership, delta, and conformance rule are documented in `docs/architecture-and-decisions.md`. The main unresolved risk is that `SpotLocks` is process-local and therefore not sufficient for multi-instance deployment.
+
+Behaviour evidence: existing C02 tests cover success, overlap, boundary touching, inactive spots, approval, expiry, cancellation, persistence, and same-spot concurrent confirmation. The strict Confirm/Cancel rule now has a focused regression test: a Cancel request that observed `DRAFT` returns `Conflict` when Confirm persisted `CONFIRMED` first.
+
+Architecture conformance check: `bash scripts/check-architecture-conformance.sh`. It has been added but not executed in this phase. Executable test evidence remains blocked by the missing .NET 8 runtime.
+
+## C05 — Detailed Design Verification Evidence
+
+Selected unit: `ReservationService`, focused on `ConfirmReservationAsync` and `CancelReservationAsync`.
+
+Derived verification includes lifecycle success, invalid state, overlap rejection, half-open interval boundaries, inactive spots, authorization failures, persistence of state changes, approval transitions, expiry, cancellation, and the strict Confirm/Cancel race. The detailed design and contract mapping are in `docs/architecture-and-decisions.md`.
+
+Current verification status: compilation succeeded during the focused test attempt, but execution was aborted because the container has .NET runtimes 9.0 and 10.0 and lacks the required .NET 8 runtime. No test result is claimed until the runtime is available.
+
 Decision / what changes because of the result:
 - Persistence přes EF Core + SQLite funguje, zůstáváme u tohoto stacku (ADR-001 platí).
 - Schéma se spravuje výhradně přes EF migrace (`dotnet ef migrations add ...` / `database update`); `parking.db` se necommituje, `Migrations/` ano.

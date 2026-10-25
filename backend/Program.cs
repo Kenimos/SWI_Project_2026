@@ -112,6 +112,7 @@ app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationReq
             CancelReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
             CancelReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
             CancelReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            CancelReservationError.Conflict => Results.Json(new { error = "conflict" }, statusCode: 409),
             CancelReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
             _ => Results.Json(new { error = "unknown" }, statusCode: 400)
         };

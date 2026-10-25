@@ -214,6 +214,8 @@ public class ReservationService
             return CancelReservationResult.Ok(reservation.State);
         }
 
+        var stateBeforeLock = reservation.State;
+
         // v0.2 (BR-03): REJECTED/EXPIRED jsou terminální, není co rušit.
         if (reservation.State is ReservationState.Rejected or ReservationState.Expired)
         {
@@ -235,6 +237,11 @@ public class ReservationService
             if (reservation.State is ReservationState.Rejected or ReservationState.Expired)
             {
                 return CancelReservationResult.Fail(CancelReservationError.InvalidState);
+            }
+
+            if (stateBeforeLock == ReservationState.Draft && reservation.State == ReservationState.Confirmed)
+            {
+                return CancelReservationResult.Fail(CancelReservationError.Conflict);
             }
 
             // REQ-08 (v0.2): líná detekce vypršení schvalovacího okna i při Cancelu.

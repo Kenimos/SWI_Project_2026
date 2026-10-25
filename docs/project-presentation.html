@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Parking Reservation System</title>
+  <style>
+    :root { --ink: #172033; --muted: #5d6878; --line: #d7dee8; --accent: #2457c5; --soft: #edf3ff; --paper: #ffffff; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f3f5f8; color: var(--ink); font: 16px/1.55 Segoe UI, Arial, sans-serif; }
+    main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 80px; }
+    header { background: var(--ink); color: white; padding: 52px 48px; border-radius: 12px; }
+    h1 { margin: 0 0 10px; font-size: clamp(2.2rem, 6vw, 4.8rem); line-height: 1.05; }
+    h2 { margin: 48px 0 16px; padding-top: 16px; border-top: 3px solid var(--accent); font-size: 1.8rem; }
+    h3 { margin-bottom: 6px; }
+    p { max-width: 78ch; }
+    .lead { color: #dbe6ff; font-size: 1.15rem; max-width: 65ch; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+    .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 20px; }
+    .panel strong { display: block; color: var(--accent); font-size: 1.2rem; }
+    code { background: var(--soft); padding: 2px 5px; border-radius: 4px; }
+    pre { overflow: auto; background: var(--ink); color: #e9efff; padding: 20px; border-radius: 8px; }
+    .status { border-left: 5px solid var(--accent); background: var(--soft); padding: 14px 18px; }
+    footer { margin-top: 52px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Parking Reservation System</h1>
+      <p class="lead">A .NET 8 backend for creating, checking, confirming, approving, and cancelling parking reservations over explicit time windows.</p>
+    </header>
+
+    <h2>Purpose and Users</h2>
+    <div class="grid">
+      <section class="panel"><strong>Drivers</strong><p>Find an available spot, create a reservation, confirm it, or cancel it before the start time.</p></section>
+      <section class="panel"><strong>Approvers</strong><p>Review reservations that require approval and approve or reject them.</p></section>
+      <section class="panel"><strong>Operators</strong><p>Maintain active parking spots and observe reservation state through the API.</p></section>
+    </div>
+
+    <h2>Implemented Functionality</h2>
+    <div class="grid">
+      <section class="panel"><strong>OP-01</strong><p>Create a valid <code>DRAFT</code> reservation.</p></section>
+      <section class="panel"><strong>OP-02</strong><p>Check availability using active spots and confirmed interval overlap.</p></section>
+      <section class="panel"><strong>OP-03</strong><p>Confirm directly or move to <code>PENDING_APPROVAL</code>.</p></section>
+      <section class="panel"><strong>OP-04</strong><p>Cancel eligible reservations with idempotent cancellation support.</p></section>
+      <section class="panel"><strong>OP-05</strong><p>Approve, reject, or lazily expire pending reservations.</p></section>
+    </div>
+
+    <h2>Architecture</h2>
+    <pre>Client
+  |
+  v
+Reservation API (ASP.NET Core minimal endpoints)
+  |
+  v
+ReservationService
+  |-- lifecycle, overlap, approval, cancellation decisions
+  |-- SpotLocks: per-spot process-local serialization
+  |-- IClock: deterministic UTC time boundary
+  |
+  v
+ParkingDbContext (EF Core) ---> SQLite
+
+External Notification Service: documented boundary, not yet integrated</pre>
+    <p class="status"><strong>Important boundary:</strong> process-local locks protect the current single-instance baseline. A database-authoritative concurrency mechanism is required before multi-instance deployment.</p>
+
+    <h2>Key Decisions</h2>
+    <ul>
+      <li>Reservation state is persisted as readable text through EF Core.</li>
+      <li>Time comparisons use UTC and an injectable clock.</li>
+      <li>Half-open intervals, <code>[start, end)</code>, prevent false conflicts at touching boundaries.</li>
+      <li>Confirm and Cancel use the same spot lock; a stale Cancel is rejected if Confirm persisted first.</li>
+      <li>Approval expiry is evaluated lazily when a pending reservation is accessed.</li>
+    </ul>
+
+    <h2>Evidence and Verification</h2>
+    <p>The project contains SQLite-backed xUnit tests for creation, availability, confirmation, cancellation, approval, rejection, expiry, persistence, interval boundaries, and concurrent confirmation. A focused regression test covers the strict Confirm/Cancel race rule.</p>
+    <p class="status">The latest test attempt compiled both projects but could not execute because the environment lacks the .NET 8 runtime. The required runtime must be installed before test results can be claimed.</p>
+
+    <h2>Remaining Work</h2>
+    <ul>
+      <li>Add a repeatable architecture conformance check.</li>
+      <li>Define the production multi-instance allocation strategy.</li>
+      <li>Decide notification failure and retry semantics.</li>
+      <li>Integrate a real authorization model and notification boundary.</li>
+    </ul>
+
+    <footer>Source evidence: project README, specification baseline v0.2, architecture decisions, C03/C05 evidence, backend implementation, and tests.</footer>
+  </main>
+</body>
+</html>

@@ -253,6 +253,30 @@ public class ReservationConfirmCancelTests : IDisposable
         Assert.Equal(CancelReservationError.NotFound, result.Error);
     }
 
+    [Fact]
+    public async Task Cancel_rejected_when_confirm_persisted_after_cancel_read()
+    {
+        var spot = await AddSpotAsync();
+        var draft = await AddReservationAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
+
+        var options = new DbContextOptionsBuilder<ParkingDbContext>()
+            .UseSqlite($"Data Source={_dbPath}")
+            .Options;
+        using var cancelDb = new ParkingDbContext(options);
+        var cancelService = new ReservationService(cancelDb, _clock, ApprovalWindow);
+
+        // Load the DRAFT into the cancelling request before Confirm persists.
+        _ = await cancelDb.Reservations.FindAsync(draft.Id);
+        var confirmResult = await _service.ConfirmReservationAsync(draft.Id, userId: 1);
+        var cancelResult = await cancelService.CancelReservationAsync(draft.Id, userId: 1);
+
+        Assert.True(confirmResult.Success);
+        Assert.Equal(ReservationState.Confirmed, confirmResult.State);
+        Assert.False(cancelResult.Success);
+        Assert.Equal(CancelReservationError.Conflict, cancelResult.Error);
+        Assert.Equal(ReservationState.Confirmed, (await _db.Reservations.FindAsync(draft.Id))!.State);
+    }
+
     public void Dispose()
     {
         _db.Dispose();

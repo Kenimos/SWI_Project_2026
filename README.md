@@ -96,7 +96,7 @@ Minimální end-to-end tok, který má být reálně spustitelný:
 ```
 POST /reservations
   → validate (volnost místa, kolize časového okna, oprávnění k typu místa)
-  → persist (uložení rezervace do databáze, nastavení stavu místa na RESERVED)
+  → persist (uložení rezervace do databáze ve stavu DRAFT)
   → return reservation ID
   → automated check (ověření, že rezervace je čitelná zpět z databáze se správným stavem)
 ```
@@ -240,8 +240,8 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v README (sekce 1) i formálně v [`docs/intent-and-change.md`](docs/intent-and-change.md).
 - **Project Frame** — kompletně vyplněný v [`docs/intent-and-change.md`](docs/intent-and-change.md) včetně common rule, domain-specific rule, boundary, assumption, unknown.
 - **Future pressure** — vybrána kategorie Q (Quality/Scale) a zdůvodněna v [`docs/intent-and-change.md`](docs/intent-and-change.md).
-- **CP1 walking skeleton** — end-to-end tok je definovaný (sekce 5), zatím není implementovaný.
-- **Backend skeleton** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext` a entitou `Reservation`, bez endpointů.
+- **CP1 walking skeleton** — end-to-end backend tok je implementovaný přes OP-01 až OP-05 a ověřený testy.
+- **Backend** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext`, rezervacemi, parkovacími místy a endpointy OP-01 až OP-05.
 - **Engineering spike A (Persistence)** — `Reservation` se ukládá do SQLite přes EF Core, načítá zpět a ověřuje testy; evidence a rozhodnutí jsou v [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md).
 - **`docs/` složka** — založena se všemi třemi soubory (`intent-and-change.md`, `architecture-and-decisions.md`, `evidence-and-evolution.md`).
 
