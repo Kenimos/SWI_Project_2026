@@ -17,10 +17,43 @@ namespace ParkingReservation.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.10");
 
+            modelBuilder.Entity("ParkingReservation.Api.Domain.ParkingArea", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OpeningHours")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PricingPolicy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("ParkingAreas");
+                });
+
             modelBuilder.Entity("ParkingReservation.Api.Domain.ParkingSpot", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("AreaId")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsActive")
@@ -29,12 +62,19 @@ namespace ParkingReservation.Api.Migrations
                     b.Property<bool>("RequiresApproval")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(20)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AreaId");
 
                     b.ToTable("ParkingSpots");
                 });
@@ -69,7 +109,39 @@ namespace ParkingReservation.Api.Migrations
 
                     b.HasIndex("SpotId");
 
+                    b.HasIndex("UserId");
+
                     b.ToTable("Reservations");
+                });
+
+            modelBuilder.Entity("ParkingReservation.Api.Domain.User", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("ParkingReservation.Api.Domain.ParkingSpot", b =>
+                {
+                    b.HasOne("ParkingReservation.Api.Domain.ParkingArea", "Area")
+                        .WithMany("Spots")
+                        .HasForeignKey("AreaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Area");
                 });
 
             modelBuilder.Entity("ParkingReservation.Api.Domain.Reservation", b =>
@@ -80,7 +152,20 @@ namespace ParkingReservation.Api.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("ParkingReservation.Api.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
                     b.Navigation("Spot");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("ParkingReservation.Api.Domain.ParkingArea", b =>
+                {
+                    b.Navigation("Spots");
                 });
 #pragma warning restore 612, 618
         }

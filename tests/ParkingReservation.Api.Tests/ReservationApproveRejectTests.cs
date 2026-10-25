@@ -18,6 +18,7 @@ public class ReservationApproveRejectTests : IDisposable
     private readonly ParkingDbContext _db;
     private readonly FakeClock _clock;
     private readonly ReservationService _service;
+    private readonly int _areaId;
 
     private static readonly DateTime Now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly TimeSpan ApprovalWindow = TimeSpan.FromHours(24);
@@ -29,13 +30,20 @@ public class ReservationApproveRejectTests : IDisposable
             .Options;
         _db = new ParkingDbContext(options);
         _db.Database.Migrate();
+        _db.Users.AddRange(
+            new User { Id = 1, Role = UserRole.Driver },
+            new User { Id = 9, Role = UserRole.Approver });
+        var area = new ParkingArea { Name = "Test area" };
+        _db.ParkingAreas.Add(area);
+        _db.SaveChanges();
+        _areaId = area.Id;
         _clock = new FakeClock { UtcNow = Now };
         _service = new ReservationService(_db, _clock, ApprovalWindow);
     }
 
     private async Task<ParkingSpot> AddApprovalSpotAsync(bool isActive = true)
     {
-        var spot = new ParkingSpot { Type = ParkingSpotType.Standard, IsActive = isActive, RequiresApproval = true };
+        var spot = new ParkingSpot { AreaId = _areaId, Type = ParkingSpotType.Standard, IsActive = isActive, RequiresApproval = true };
         _db.ParkingSpots.Add(spot);
         await _db.SaveChangesAsync();
         return spot;

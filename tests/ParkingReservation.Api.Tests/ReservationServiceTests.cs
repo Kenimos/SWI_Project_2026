@@ -16,6 +16,7 @@ public class ReservationServiceTests : IDisposable
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"parking-test-{Guid.NewGuid():N}.db");
     private readonly ParkingDbContext _db;
     private readonly ReservationService _service;
+    private readonly int _areaId;
 
     public ReservationServiceTests()
     {
@@ -24,12 +25,19 @@ public class ReservationServiceTests : IDisposable
             .Options;
         _db = new ParkingDbContext(options);
         _db.Database.Migrate();
+        _db.Users.AddRange(
+            new User { Id = 1, Role = UserRole.Driver },
+            new User { Id = 9, Role = UserRole.Approver });
+        var area = new ParkingArea { Name = "Test area" };
+        _db.ParkingAreas.Add(area);
+        _db.SaveChanges();
+        _areaId = area.Id;
         _service = new ReservationService(_db, new FakeClock { UtcNow = DateTime.UtcNow }, TimeSpan.FromHours(24));
     }
 
     private async Task<ParkingSpot> AddSpotAsync(ParkingSpotType type = ParkingSpotType.Standard)
     {
-        var spot = new ParkingSpot { Type = type };
+        var spot = new ParkingSpot { AreaId = _areaId, Type = type };
         _db.ParkingSpots.Add(spot);
         await _db.SaveChangesAsync();
         return spot;

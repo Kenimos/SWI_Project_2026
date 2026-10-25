@@ -9,7 +9,13 @@ public class ParkingSpot
 {
     public int Id { get; set; }
 
+    public int AreaId { get; set; }
+
+    public ParkingArea? Area { get; set; }
+
     public ParkingSpotType Type { get; set; } = ParkingSpotType.Standard;
+
+    public ParkingSpotState State { get; set; } = ParkingSpotState.Free;
 
     /// <summary>Odpovídá precondition "ParkingSpot is active" v OP-03 (Confirm).</summary>
     public bool IsActive { get; set; } = true;

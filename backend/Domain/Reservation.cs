@@ -13,6 +13,8 @@ public class Reservation
     /// <summary>Uživatel, který rezervaci vytvořil (zatím jen číselná reference, entita User ještě neexistuje).</summary>
     public int UserId { get; set; }
 
+    public User? User { get; set; }
+
     /// <summary>Začátek rezervace (UTC).</summary>
     public DateTime StartTime { get; set; }
 

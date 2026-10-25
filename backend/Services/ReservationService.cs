@@ -30,9 +30,8 @@ public class ReservationService
     /// <summary>OP-01 — Create Reservation.</summary>
     public async Task<CreateReservationResult> CreateReservationAsync(CreateReservationRequest request)
     {
-        // Precondition: User is authorized to create Reservations.
-        // Zatím bez skutečného auth systému - jen validujeme, že UserId dává smysl.
-        if (request.UserId <= 0)
+        var user = await _db.Users.FindAsync(request.UserId);
+        if (user is null || !user.IsActive || user.Role != UserRole.Driver)
         {
             return CreateReservationResult.Fail(CreateReservationError.Unauthorized);
         }
@@ -118,17 +117,15 @@ public class ReservationService
     /// </summary>
     public async Task<ConfirmReservationResult> ConfirmReservationAsync(int reservationId, int userId)
     {
-        // Precondition: User is authorized to confirm Reservation X.
-        // "Authorized" zatím jen jako u Create - bez auth systému (TBD v OP-03).
-        if (userId <= 0)
-        {
-            return ConfirmReservationResult.Fail(ConfirmReservationError.Unauthorized);
-        }
-
         var reservation = await _db.Reservations.FindAsync(reservationId);
         if (reservation is null)
         {
             return ConfirmReservationResult.Fail(ConfirmReservationError.NotFound);
+        }
+
+        if (!await IsReservationOwnerDriverAsync(reservation, userId))
+        {
+            return ConfirmReservationResult.Fail(ConfirmReservationError.Unauthorized);
         }
 
         var spotLock = SpotLocks.Get(reservation.SpotId);
@@ -163,6 +160,7 @@ public class ReservationService
             {
                 reservation.State = ReservationState.PendingApproval;
                 reservation.PendingApprovalSince = _clock.UtcNow;
+                spot.State = ParkingSpotState.Reserved;
                 await _db.SaveChangesAsync();
 
                 return ConfirmReservationResult.Ok(reservation.State);
@@ -183,6 +181,7 @@ public class ReservationService
             }
 
             reservation.State = ReservationState.Confirmed;
+            spot.State = ParkingSpotState.Reserved;
             await _db.SaveChangesAsync();
 
             return ConfirmReservationResult.Ok(reservation.State);
@@ -196,16 +195,15 @@ public class ReservationService
     /// <summary>OP-04 — Cancel Reservation.</summary>
     public async Task<CancelReservationResult> CancelReservationAsync(int reservationId, int userId)
     {
-        // Precondition: User is authorized to cancel Reservation X (scope TBD v OP-04).
-        if (userId <= 0)
-        {
-            return CancelReservationResult.Fail(CancelReservationError.Unauthorized);
-        }
-
         var reservation = await _db.Reservations.FindAsync(reservationId);
         if (reservation is null)
         {
             return CancelReservationResult.Fail(CancelReservationError.NotFound);
+        }
+
+        if (!await IsReservationOwnerDriverAsync(reservation, userId))
+        {
+            return CancelReservationResult.Fail(CancelReservationError.Unauthorized);
         }
 
         // Zrušení už zrušené rezervace je idempotentní úspěch (BR-03) - zámek netřeba.
@@ -262,7 +260,17 @@ public class ReservationService
             // DRAFT, CONFIRMED nebo PENDING_APPROVAL (v0.2) -> CANCELLED (BR-03).
             // Pokud mezitím vyhrál Confirm/Approve, reservation.State je teď
             // CONFIRMED - podle BR-03 je i CONFIRMED->CANCELLED platný přechod.
+            var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
+            if (reservation.State == ReservationState.Confirmed && spot?.State == ParkingSpotState.Occupied)
+            {
+                return CancelReservationResult.Fail(CancelReservationError.InvalidState);
+            }
+
             reservation.State = ReservationState.Cancelled;
+            if (spot is not null && spot.State == ParkingSpotState.Reserved)
+            {
+                spot.State = ParkingSpotState.Free;
+            }
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
 
@@ -280,8 +288,7 @@ public class ReservationService
     /// </summary>
     public async Task<ApproveReservationResult> ApproveReservationAsync(int reservationId, int approverUserId)
     {
-        // Precondition: Approver je autorizovaný (rozsah TBD v OP-05).
-        if (approverUserId <= 0)
+        if (!await IsActiveApproverAsync(approverUserId))
         {
             return ApproveReservationResult.Fail(ApproveReservationError.Unauthorized);
         }
@@ -340,6 +347,7 @@ public class ReservationService
             }
 
             reservation.State = ReservationState.Confirmed;
+            spot.State = ParkingSpotState.Reserved;
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
 
@@ -354,7 +362,7 @@ public class ReservationService
     /// <summary>OP-05 — Approve Reservation (reject-větev). Žádný overlap/active check (REQ-07).</summary>
     public async Task<RejectReservationResult> RejectReservationAsync(int reservationId, int approverUserId)
     {
-        if (approverUserId <= 0)
+        if (!await IsActiveApproverAsync(approverUserId))
         {
             return RejectReservationResult.Fail(RejectReservationError.Unauthorized);
         }
@@ -402,4 +410,172 @@ public class ReservationService
         reservation.State == ReservationState.PendingApproval &&
         reservation.PendingApprovalSince is DateTime since &&
         _clock.UtcNow - since >= _approvalWindow;
+
+    public async Task<ParkingAreaResult> CreateParkingAreaAsync(CreateParkingAreaRequest request)
+    {
+        if (!await IsActiveApproverAsync(request.ApproverUserId))
+        {
+            return ParkingAreaResult.Fail(ParkingAreaError.Unauthorized);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            return ParkingAreaResult.Fail(ParkingAreaError.InvalidName);
+        }
+
+        var area = new ParkingArea
+        {
+            Name = request.Name.Trim(),
+            Address = request.Address,
+            Type = request.Type,
+            OpeningHours = request.OpeningHours,
+            PricingPolicy = request.PricingPolicy
+        };
+        _db.ParkingAreas.Add(area);
+        await _db.SaveChangesAsync();
+        return ParkingAreaResult.Ok(area.Id);
+    }
+
+    public async Task<ParkingSpotResult> CreateParkingSpotAsync(int areaId, CreateParkingSpotRequest request)
+    {
+        if (!await IsActiveApproverAsync(request.ApproverUserId))
+        {
+            return ParkingSpotResult.Fail(ParkingAreaError.Unauthorized);
+        }
+
+        if (await _db.ParkingAreas.FindAsync(areaId) is null)
+        {
+            return ParkingSpotResult.Fail(ParkingAreaError.NotFound);
+        }
+
+        var spot = new ParkingSpot { AreaId = areaId, Type = request.Type, State = ParkingSpotState.Free };
+        _db.ParkingSpots.Add(spot);
+        await _db.SaveChangesAsync();
+        return ParkingSpotResult.Ok(spot.Id);
+    }
+
+    public async Task<ParkingAreaAvailabilityResult> CheckAreaAvailabilityAsync(int areaId, DateTime start, DateTime end)
+    {
+        if (start >= end)
+        {
+            return ParkingAreaAvailabilityResult.Fail(ParkingAreaAvailabilityError.InvalidInterval);
+        }
+
+        if (await _db.ParkingAreas.FindAsync(areaId) is null)
+        {
+            return ParkingAreaAvailabilityResult.Fail(ParkingAreaAvailabilityError.NotFound);
+        }
+
+        var spots = await _db.ParkingSpots
+            .Where(s => s.AreaId == areaId)
+            .ToListAsync();
+        var result = new List<ParkingAreaAvailabilityItem>();
+
+        foreach (var spot in spots)
+        {
+            var overlaps = await _db.Reservations.AnyAsync(r =>
+                r.SpotId == spot.Id &&
+                r.State == ReservationState.Confirmed &&
+                r.StartTime < end &&
+                start < r.EndTime);
+            var available = spot.State is not (ParkingSpotState.Occupied or ParkingSpotState.OutOfService) && !overlaps;
+            result.Add(new ParkingAreaAvailabilityItem(spot.Id, spot.Type, spot.State, available));
+        }
+
+        return ParkingAreaAvailabilityResult.Ok(result);
+    }
+
+    public Task<ParkingSpotOperationResult> SetSpotOutOfServiceAsync(int spotId, int approverUserId) =>
+        SetSpotStateAsync(spotId, approverUserId, ParkingSpotState.OutOfService, ParkingSpotState.Free);
+
+    public Task<ParkingSpotOperationResult> RestoreSpotAsync(int spotId, int approverUserId) =>
+        SetSpotStateAsync(spotId, approverUserId, ParkingSpotState.Free, ParkingSpotState.OutOfService);
+
+    public async Task<ParkingSpotOperationResult> CheckInAsync(int reservationId, int approverUserId)
+    {
+        if (!await IsActiveApproverAsync(approverUserId))
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.Unauthorized);
+        }
+
+        var reservation = await _db.Reservations.FindAsync(reservationId);
+        if (reservation is null)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
+        }
+
+        var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
+        if (reservation.State != ReservationState.Confirmed || spot is null || spot.State != ParkingSpotState.Reserved)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+        }
+
+        spot.State = ParkingSpotState.Occupied;
+        await _db.SaveChangesAsync();
+        return ParkingSpotOperationResult.Ok(spot.State);
+    }
+
+    public async Task<ParkingSpotOperationResult> CheckOutAsync(int reservationId, int approverUserId)
+    {
+        if (!await IsActiveApproverAsync(approverUserId))
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.Unauthorized);
+        }
+
+        var reservation = await _db.Reservations.FindAsync(reservationId);
+        if (reservation is null)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
+        }
+
+        var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
+        if (reservation.State != ReservationState.Confirmed || spot is null || spot.State != ParkingSpotState.Occupied)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+        }
+
+        spot.State = ParkingSpotState.Free;
+        await _db.SaveChangesAsync();
+        return ParkingSpotOperationResult.Ok(spot.State);
+    }
+
+    private async Task<ParkingSpotOperationResult> SetSpotStateAsync(int spotId, int approverUserId, ParkingSpotState target, ParkingSpotState expected)
+    {
+        if (!await IsActiveApproverAsync(approverUserId))
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.Unauthorized);
+        }
+
+        var spot = await _db.ParkingSpots.FindAsync(spotId);
+        if (spot is null)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
+        }
+
+        if (spot.State != expected)
+        {
+            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+        }
+
+        spot.State = target;
+        await _db.SaveChangesAsync();
+        return ParkingSpotOperationResult.Ok(spot.State);
+    }
+
+    private async Task<bool> IsReservationOwnerDriverAsync(Reservation reservation, int userId)
+    {
+        if (reservation.UserId != userId)
+        {
+            return false;
+        }
+
+        var user = await _db.Users.FindAsync(userId);
+        return user is { IsActive: true, Role: UserRole.Driver };
+    }
+
+    private async Task<bool> IsActiveApproverAsync(int userId)
+    {
+        var user = await _db.Users.FindAsync(userId);
+        return user is { IsActive: true, Role: UserRole.Approver };
+    }
 }
