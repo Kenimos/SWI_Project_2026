@@ -39,7 +39,12 @@ public class ReservationPersistenceTests : IDisposable
         // 1) uložit v jednom kontextu
         using (var writeContext = CreateMigratedContext())
         {
-            var spot = new ParkingSpot();
+            writeContext.Users.Add(new User { Id = 7, Role = UserRole.Driver });
+            var area = new ParkingArea { Name = "Test area" };
+            writeContext.ParkingAreas.Add(area);
+            writeContext.SaveChanges();
+
+            var spot = new ParkingSpot { AreaId = area.Id };
             writeContext.ParkingSpots.Add(spot);
             writeContext.SaveChanges();
             spotId = spot.Id;
@@ -76,7 +81,12 @@ public class ReservationPersistenceTests : IDisposable
 
         using (var writeContext = CreateMigratedContext())
         {
-            var spot = new ParkingSpot();
+            writeContext.Users.Add(new User { Id = 1, Role = UserRole.Driver });
+            var area = new ParkingArea { Name = "Test area" };
+            writeContext.ParkingAreas.Add(area);
+            writeContext.SaveChanges();
+
+            var spot = new ParkingSpot { AreaId = area.Id };
             writeContext.ParkingSpots.Add(spot);
             writeContext.SaveChanges();
 

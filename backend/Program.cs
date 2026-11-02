@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using ParkingReservation.Api.Contracts;
 using ParkingReservation.Api.Data;
+using ParkingReservation.Api.Domain;
 using ParkingReservation.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -112,6 +113,7 @@ app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationReq
             CancelReservationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
             CancelReservationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
             CancelReservationError.TooLate => Results.Json(new { error = "too_late" }, statusCode: 409),
+            CancelReservationError.Conflict => Results.Json(new { error = "conflict" }, statusCode: 409),
             CancelReservationError.InvalidState => Results.Json(new { error = "invalid_state" }, statusCode: 409),
             _ => Results.Json(new { error = "unknown" }, statusCode: 400)
         };
@@ -167,6 +169,132 @@ app.MapPost("/reservations/{id:int}/reject", async (int id, RejectReservationReq
     return Results.Ok(new { id, state = result.State!.Value.ToString() });
 })
 .WithName("RejectReservation")
+.WithOpenApi();
+
+app.MapPost("/parking-areas", async (CreateParkingAreaRequest request, ReservationService service) =>
+{
+    var result = await service.CreateParkingAreaAsync(request);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingAreaError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingAreaError.InvalidName => Results.Json(new { error = "invalid_name" }, statusCode: 400),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Created($"/parking-areas/{result.AreaId}", new { id = result.AreaId });
+})
+.WithName("CreateParkingArea")
+.WithOpenApi();
+
+app.MapPost("/parking-areas/{areaId:int}/spots", async (int areaId, CreateParkingSpotRequest request, ReservationService service) =>
+{
+    var result = await service.CreateParkingSpotAsync(areaId, request);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingAreaError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingAreaError.NotFound => Results.NotFound(new { error = "area_not_found" }),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Created($"/parking-spots/{result.SpotId}", new { id = result.SpotId, state = ParkingSpotState.Free.ToString() });
+})
+.WithName("CreateParkingSpot")
+.WithOpenApi();
+
+app.MapGet("/parking-areas/{areaId:int}/availability", async (int areaId, DateTime start, DateTime end, ReservationService service) =>
+{
+    var result = await service.CheckAreaAvailabilityAsync(areaId, start, end);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingAreaAvailabilityError.NotFound => Results.NotFound(new { error = "area_not_found" }),
+            ParkingAreaAvailabilityError.InvalidInterval => Results.Json(new { error = "invalid_interval" }, statusCode: 400),
+            _ => Results.Json(new { error = "unknown" }, statusCode: 400)
+        };
+    }
+
+    return Results.Ok(result.Spots);
+})
+.WithName("CheckParkingAreaAvailability")
+.WithOpenApi();
+
+app.MapPost("/parking-spots/{spotId:int}/out-of-service", async (int spotId, SpotOperationRequest request, ReservationService service) =>
+{
+    var result = await service.SetSpotOutOfServiceAsync(spotId, request.ApproverUserId);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingSpotOperationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingSpotOperationError.NotFound => Results.NotFound(new { error = "spot_not_found" }),
+            _ => Results.Json(new { error = "invalid_state" }, statusCode: 409)
+        };
+    }
+
+    return Results.Ok(new { id = spotId, state = result.State!.Value.ToString() });
+})
+.WithName("SetSpotOutOfService")
+.WithOpenApi();
+
+app.MapPost("/parking-spots/{spotId:int}/restore", async (int spotId, SpotOperationRequest request, ReservationService service) =>
+{
+    var result = await service.RestoreSpotAsync(spotId, request.ApproverUserId);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingSpotOperationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingSpotOperationError.NotFound => Results.NotFound(new { error = "spot_not_found" }),
+            _ => Results.Json(new { error = "invalid_state" }, statusCode: 409)
+        };
+    }
+
+    return Results.Ok(new { id = spotId, state = result.State!.Value.ToString() });
+})
+.WithName("RestoreSpot")
+.WithOpenApi();
+
+app.MapPost("/reservations/{id:int}/check-in", async (int id, CheckInReservationRequest request, ReservationService service) =>
+{
+    var result = await service.CheckInAsync(id, request.ApproverUserId);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingSpotOperationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingSpotOperationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            _ => Results.Json(new { error = "invalid_state" }, statusCode: 409)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("CheckInReservation")
+.WithOpenApi();
+
+app.MapPost("/reservations/{id:int}/check-out", async (int id, CheckOutReservationRequest request, ReservationService service) =>
+{
+    var result = await service.CheckOutAsync(id, request.ApproverUserId);
+    if (!result.Success)
+    {
+        return result.Error switch
+        {
+            ParkingSpotOperationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
+            ParkingSpotOperationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            _ => Results.Json(new { error = "invalid_state" }, statusCode: 409)
+        };
+    }
+
+    return Results.Ok(new { id, state = result.State!.Value.ToString() });
+})
+.WithName("CheckOutReservation")
 .WithOpenApi();
 
 app.Run();

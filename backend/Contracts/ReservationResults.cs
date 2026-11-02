@@ -72,6 +72,9 @@ public enum CancelReservationError
     Unauthorized,
     TooLate,
 
+    /// <summary>Confirm persisted first while this request was cancelling a DRAFT (BR-03).</summary>
+    Conflict,
+
     /// <summary>v0.2: REJECTED/EXPIRED jsou terminální - není co rušit (BR-03 v0.2).</summary>
     InvalidState
 }

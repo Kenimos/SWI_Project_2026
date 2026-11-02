@@ -1,6 +1,6 @@
 # Parking Reservation System — Specification
 
-Stav: **DRAFT — čeká na schválení týmem jako Baseline v0.1** (sekce 10 kontroly konzistence níže).
+Stav: **Baseline v0.2 — schváleno týmem 25.10.2026** (vychází z Baseline v0.1 a schváleného approval workflow).
 
 Domain reference: [intent-and-change.md](intent-and-change.md) (Project Frame z C01).
 
@@ -717,4 +717,4 @@ TBD — whether Notification Service failure affects approve/reject
 | Use-case diagram vs. OP-05 | ☑ | Aktér Approver a cíl "Approve / Reject Reservation" (3a) odpovídá OP-05. |
 | Nejistota vs. vymyšlená přesnost (approval window) | ☑ | Přesná délka okna je explicitně TBD v OP-05, kód používá jen placeholder - žádná vymyšlená "oficiální" hodnota se netváří jako rozhodnutí. |
 
-**Schváleno jako Specification Baseline v0.2:** ☐ ano / datum: _____ / kým: _____
+**Schváleno jako Specification Baseline v0.2:** ☑ ano / datum: 25.10.2026 / kým: tým projektu

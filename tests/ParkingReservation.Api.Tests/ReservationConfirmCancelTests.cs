@@ -17,6 +17,7 @@ public class ReservationConfirmCancelTests : IDisposable
     private readonly ParkingDbContext _db;
     private readonly FakeClock _clock;
     private readonly ReservationService _service;
+    private readonly int _areaId;
 
     // Pevný referenční okamžik "teď", vůči kterému jsou start/end testů počítané.
     private static readonly DateTime Now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
@@ -33,13 +34,20 @@ public class ReservationConfirmCancelTests : IDisposable
             .Options;
         _db = new ParkingDbContext(options);
         _db.Database.Migrate();
+        _db.Users.AddRange(
+            new User { Id = 1, Role = UserRole.Driver },
+            new User { Id = 9, Role = UserRole.Approver });
+        var area = new ParkingArea { Name = "Test area" };
+        _db.ParkingAreas.Add(area);
+        _db.SaveChanges();
+        _areaId = area.Id;
         _clock = new FakeClock { UtcNow = Now };
         _service = new ReservationService(_db, _clock, ApprovalWindow);
     }
 
     private async Task<ParkingSpot> AddSpotAsync(bool isActive = true, ParkingSpotType type = ParkingSpotType.Standard)
     {
-        var spot = new ParkingSpot { Type = type, IsActive = isActive };
+        var spot = new ParkingSpot { AreaId = _areaId, Type = type, IsActive = isActive };
         _db.ParkingSpots.Add(spot);
         await _db.SaveChangesAsync();
         return spot;
@@ -251,6 +259,30 @@ public class ReservationConfirmCancelTests : IDisposable
 
         Assert.False(result.Success);
         Assert.Equal(CancelReservationError.NotFound, result.Error);
+    }
+
+    [Fact]
+    public async Task Cancel_rejected_when_confirm_persisted_after_cancel_read()
+    {
+        var spot = await AddSpotAsync();
+        var draft = await AddReservationAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
+
+        var options = new DbContextOptionsBuilder<ParkingDbContext>()
+            .UseSqlite($"Data Source={_dbPath}")
+            .Options;
+        using var cancelDb = new ParkingDbContext(options);
+        var cancelService = new ReservationService(cancelDb, _clock, ApprovalWindow);
+
+        // Load the DRAFT into the cancelling request before Confirm persists.
+        _ = await cancelDb.Reservations.FindAsync(draft.Id);
+        var confirmResult = await _service.ConfirmReservationAsync(draft.Id, userId: 1);
+        var cancelResult = await cancelService.CancelReservationAsync(draft.Id, userId: 1);
+
+        Assert.True(confirmResult.Success);
+        Assert.Equal(ReservationState.Confirmed, confirmResult.State);
+        Assert.False(cancelResult.Success);
+        Assert.Equal(CancelReservationError.Conflict, cancelResult.Error);
+        Assert.Equal(ReservationState.Confirmed, (await _db.Reservations.FindAsync(draft.Id))!.State);
     }
 
     public void Dispose()

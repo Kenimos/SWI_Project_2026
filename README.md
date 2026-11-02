@@ -27,7 +27,7 @@ Kapacita a obsazenost oblasti se vždy **odvozují** agregací stavů jejích je
 | `id` | identifikace v rámci oblasti (patro, řada, číslo) |
 | `areaId` | vazba na parkovací oblast |
 | `type` | `STANDARD`, `COMPACT`, `DISABLED`, `EV_CHARGING`, `MOTORCYCLE` |
-| `state` | aktuální stav místa (viz níže) |
+| `state` | aktuální fyzický/provozní stav místa (viz níže) |
 
 **Stavy parkovacího místa:**
 
@@ -70,6 +70,8 @@ Osoba, která vytváří a spravuje rezervace parkovacích míst. Základní rol
 - **Confirm reservation** — potvrzení rezervace (`DRAFT → CONFIRMED`).
 - **Cancel reservation** — zrušení rezervace (`→ CANCELLED`), uvolnění místa.
 - **Check availability** — vyhledání volných míst v oblasti pro daný časový interval a typ místa.
+- **Manage parking areas/spots** — Approver vytváří oblasti a místa a spravuje jejich provozní stav.
+- **Check-in / check-out** — Approver zaznamená příjezd a odjezd vozidla u potvrzené rezervace.
 
 ---
 
@@ -95,8 +97,8 @@ Minimální end-to-end tok, který má být reálně spustitelný:
 
 ```
 POST /reservations
-  → validate (volnost místa, kolize časového okna, oprávnění k typu místa)
-  → persist (uložení rezervace do databáze, nastavení stavu místa na RESERVED)
+  → validate (existence místa, platnost intervalu, oprávnění k typu místa)
+  → persist (uložení rezervace do databáze ve stavu DRAFT)
   → return reservation ID
   → automated check (ověření, že rezervace je čitelná zpět z databáze se správným stavem)
 ```
@@ -223,13 +225,13 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - [x] jasný reservation domain
 - [x] Resource + Reservation + User
 - [x] meaningful Reservation states
-- [x] create + confirm/approve + cancel + availability *(definováno v Project Frame, neimplementováno)*
-- [x] common overlap rule *(definováno v Project Frame)*
+- [x] create + confirm/approve + cancel + availability *(implementováno v backendu a ověřeno testy)*
+- [x] common overlap rule *(implementováno a ověřeno v Confirm/Availability testech)*
 - [x] 1 domain-specific business rule *(definováno v Project Frame)*
 - [x] 1 external/system boundary *(definováno v Project Frame — Notification Service)*
 - [x] kompletní Project Frame *(`docs/intent-and-change.md`)*
 - [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, kategorie Q)*
-- [ ] 1 reviewed and integrated change
+- [ ] 1 reviewed and integrated change *(external PR/review evidence is not present in this workspace)*
 - [x] 1 executed engineering spike *(varianta A — Persistence, issue #1)*
 - [x] spike evidence + decision *(`docs/evidence-and-evolution.md`)*
 - [x] definovaný CP1 walking skeleton
@@ -240,11 +242,11 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v README (sekce 1) i formálně v [`docs/intent-and-change.md`](docs/intent-and-change.md).
 - **Project Frame** — kompletně vyplněný v [`docs/intent-and-change.md`](docs/intent-and-change.md) včetně common rule, domain-specific rule, boundary, assumption, unknown.
 - **Future pressure** — vybrána kategorie Q (Quality/Scale) a zdůvodněna v [`docs/intent-and-change.md`](docs/intent-and-change.md).
-- **CP1 walking skeleton** — end-to-end tok je definovaný (sekce 5), zatím není implementovaný.
-- **Backend skeleton** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext` a entitou `Reservation`, bez endpointů.
+- **CP1 walking skeleton** — end-to-end backend tok je implementovaný přes OP-01 až OP-05 a ověřený testy.
+- **Backend** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext`, rezervacemi, parkovacími místy a endpointy OP-01 až OP-05.
 - **Engineering spike A (Persistence)** — `Reservation` se ukládá do SQLite přes EF Core, načítá zpět a ověřuje testy; evidence a rozhodnutí jsou v [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md).
-- **`docs/` složka** — založena se všemi třemi soubory (`intent-and-change.md`, `architecture-and-decisions.md`, `evidence-and-evolution.md`).
+- **`docs/` složka** — obsahuje Project Frame, specifikaci, architekturu, evidenci a projektovou prezentaci.
 
 ### Co ještě chybí
 
-- **Review cyklus** — spike je hotový na větvi `feature/c01-spike-persistence`, ale zatím ho nezkontroloval a nezmergoval druhý člen týmu přes Pull Request. Po mergi odškrtnout bod „1 reviewed and integrated change".
+- **Produkční autorizace a škálování** — lokální User/Role kontrola je implementovaná, ale externí identity a multi-instance databázová ochrana ještě nejsou součástí řešení.
