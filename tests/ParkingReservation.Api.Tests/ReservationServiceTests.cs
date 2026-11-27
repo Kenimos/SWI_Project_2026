@@ -7,9 +7,9 @@ using ParkingReservation.Api.Services;
 namespace ParkingReservation.Api.Tests;
 
 /// <summary>
-/// C02 verification examples pro OP-01 Create Reservation a OP-02 Check
-/// Availability (viz docs/specification.md). Každý test běží proti vlastnímu
-/// dočasnému souboru .db se schématem vytvořeným přes skutečné EF migrace.
+/// C02 verification examples for OP-01 Create Reservation and OP-02 Check
+/// Availability (see docs/specification.md). Each test runs against its own
+/// temporary .db file with the schema created through real EF migrations.
 /// </summary>
 public class ReservationServiceTests : IDisposable
 {
@@ -131,7 +131,7 @@ public class ReservationServiceTests : IDisposable
     }
 
     // ---------- OP-02 Check Availability ----------
-    // Verification examples přesně podle docs/specification.md:
+    // Verification examples exactly as in docs/specification.md:
     // Existing CONFIRMED: [10:00,11:00)
     // query [09:00,10:00) -> AVAILABLE
     // query [10:30,11:30) -> UNAVAILABLE
@@ -181,7 +181,7 @@ public class ReservationServiceTests : IDisposable
     [Fact]
     public async Task Availability_right_after_confirmed_reservation_is_available()
     {
-        // Half-open interval [start,end) - konec 11:00 už do rezervace nepatří.
+        // Half-open interval [start,end) - the end 11:00 no longer belongs to the reservation.
         var spot = await AddSpotWithConfirmedReservationAsync();
 
         var result = await _service.CheckAvailabilityAsync(spot.Id,
@@ -195,7 +195,7 @@ public class ReservationServiceTests : IDisposable
     [Fact]
     public async Task Availability_ignores_draft_reservations()
     {
-        // DRAFT neblokuje dostupnost - jen CONFIRMED (viz Assumption v OP-02).
+        // DRAFT does not block availability - only CONFIRMED does (see the Assumption in OP-02).
         var spot = await AddSpotAsync();
         _db.Reservations.Add(new Reservation
         {
@@ -229,8 +229,8 @@ public class ReservationServiceTests : IDisposable
     [Fact]
     public async Task Availability_inactive_spot_is_unavailable_even_without_reservations()
     {
-        // REQ-02 (upraveno 2026-10-11): neaktivní spot je vždy UNAVAILABLE,
-        // bez ohledu na to, že nemá žádnou rezervaci.
+        // REQ-02 (updated 2026-10-11): an inactive spot is always UNAVAILABLE,
+        // even though it has no reservation.
         var spot = await AddSpotAsync(ParkingSpotType.Standard);
         spot.IsActive = false;
         await _db.SaveChangesAsync();

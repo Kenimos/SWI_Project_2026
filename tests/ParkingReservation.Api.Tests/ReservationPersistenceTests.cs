@@ -5,8 +5,8 @@ using ParkingReservation.Api.Domain;
 namespace ParkingReservation.Api.Tests;
 
 /// <summary>
-/// C01 engineering spike A (Persistence): Reservation -> skutečná SQLite DB -> znovu načíst -> ověřit.
-/// Každý test používá vlastní dočasný soubor .db a schéma vytvoří přes skutečné EF migrace.
+/// C01 engineering spike A (Persistence): Reservation -> real SQLite DB -> load again -> verify.
+/// Each test uses its own temporary .db file and creates the schema through real EF migrations.
 /// </summary>
 public class ReservationPersistenceTests : IDisposable
 {
@@ -36,7 +36,7 @@ public class ReservationPersistenceTests : IDisposable
 
         int spotId;
 
-        // 1) uložit v jednom kontextu
+        // 1) store in one context
         using (var writeContext = CreateMigratedContext())
         {
             writeContext.Users.Add(new User { Id = 7, Role = UserRole.Driver });
@@ -62,7 +62,7 @@ public class ReservationPersistenceTests : IDisposable
             savedId = reservation.Id;
         }
 
-        // 2) načíst v novém kontextu (nic se nebere z paměti, jen z DB souboru)
+        // 2) load in a new context (nothing comes from memory, only from the DB file)
         using var readContext = CreateContext();
         var loaded = readContext.Reservations.Single(r => r.Id == savedId);
 
@@ -113,7 +113,7 @@ public class ReservationPersistenceTests : IDisposable
 
     public void Dispose()
     {
-        // SQLite si drží spojení v poolu, bez tohohle by šel soubor smazat jen někdy.
+        // SQLite keeps connections in a pool; without this the file could be deleted only sometimes.
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (File.Exists(_dbPath))
         {

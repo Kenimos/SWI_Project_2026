@@ -6,8 +6,8 @@ using ParkingReservation.Api.Domain;
 namespace ParkingReservation.Api.Services;
 
 /// <summary>
-/// Implementuje OP-01 až OP-07 podle docs/specification.md (Baseline v0.2.1).
-/// Jediný vlastník všech přechodů stavu Reservation i ParkingSpot (ADR-006,
+/// Implements OP-01 to OP-07 according to docs/specification.md (Baseline v0.2.1).
+/// The single owner of all Reservation and ParkingSpot state transitions (ADR-006,
 /// scripts/check-architecture-conformance.sh).
 /// </summary>
 public class ReservationService
@@ -17,10 +17,10 @@ public class ReservationService
     private readonly TimeSpan _approvalWindow;
 
     /// <param name="approvalWindow">
-    /// v0.2 - jak dlouho smí PENDING_APPROVAL čekat, než se při dalším
-    /// dotyku (Approve/Reject/Cancel) považuje za EXPIRED (REQ-08).
-    /// Přesná hodnota je v docs/specification.md výslovně TBD - tohle je
-    /// jen demonstrační placeholder, ne odsouhlasené business pravidlo.
+    /// v0.2 - how long PENDING_APPROVAL may wait before it is treated as
+    /// EXPIRED on the next access (Approve/Reject/Cancel) (REQ-08).
+    /// The exact value is explicitly TBD in docs/specification.md - this is
+    /// only a demonstration placeholder, not an agreed business rule.
     /// </param>
     public ReservationService(ParkingDbContext db, IClock clock, TimeSpan approvalWindow)
     {
@@ -65,8 +65,8 @@ public class ReservationService
             return CreateReservationResult.Fail(CreateReservationError.SpotRequiresEligibility);
         }
 
-        // Success postcondition: nová Reservation ve stavu DRAFT, spot zatím
-        // není alokován (Create podle OP-01 nekontroluje kolize, viz BR-02).
+        // Success postcondition: a new Reservation in state DRAFT, the spot is not
+        // allocated yet (Create per OP-01 does not check conflicts, see BR-02).
         var reservation = new Reservation
         {
             SpotId = spot.Id,
@@ -98,14 +98,14 @@ public class ReservationService
             return AvailabilityResult.Fail(AvailabilityError.SpotNotFound);
         }
 
-        // REQ-02: stejné pravidlo jako availability oblasti (jedna metoda).
+        // REQ-02: the same rule as area availability (one method).
         return AvailabilityResult.Ok(await IsSpotAvailableAsync(spot, start, end));
     }
 
     /// <summary>
-    /// OP-03 — Confirm Reservation. Souběžné pokusy o potvrzení rezervací
-    /// téhož místa (REQ-04) i souběh Confirm/Cancel nad stejnou rezervací
-    /// (BR-03) jsou serializované zámkem SpotLocks na dané ParkingSpot.
+    /// OP-03 — Confirm Reservation. Concurrent attempts to confirm reservations
+    /// of the same spot (REQ-04) and a Confirm/Cancel race on the same reservation
+    /// (BR-03) are serialized by the SpotLocks lock of that ParkingSpot.
     /// </summary>
     public async Task<ConfirmReservationResult> ConfirmReservationAsync(int reservationId, int userId)
     {
@@ -124,7 +124,7 @@ public class ReservationService
         await spotLock.WaitAsync();
         try
         {
-            // Čerstvý stav z DB, ne to, co jsme viděli před získáním zámku.
+            // Fresh state from the DB, not what we saw before acquiring the lock.
             await _db.Entry(reservation).ReloadAsync();
 
             // Precondition: Reservation X.state = DRAFT.
@@ -146,20 +146,20 @@ public class ReservationService
                 return ConfirmReservationResult.Fail(ConfirmReservationError.SpotInactive);
             }
 
-            // BR-05 (v0.2): spoty vyžadující schválení jdou do PENDING_APPROVAL
-            // místo přímo do CONFIRMED - kontrola overlapu se odkládá na Approve.
+            // BR-05 (v0.2): spots requiring approval go to PENDING_APPROVAL
+            // instead of directly to CONFIRMED - the overlap check is deferred to Approve.
             if (spot.RequiresApproval)
             {
                 reservation.State = ReservationState.PendingApproval;
                 reservation.PendingApprovalSince = _clock.UtcNow;
-                // PENDING_APPROVAL místo neblokuje (OP-02 v0.2) - stav místa se nemění.
+                // PENDING_APPROVAL does not block the spot (OP-02 v0.2) - the spot state does not change.
                 await _db.SaveChangesAsync();
 
                 return ConfirmReservationResult.Ok(reservation.State);
             }
 
-            // REQ-03: interval nesmí kolidovat s jinou CONFIRMED rezervací
-            // téhož místa (BR-01, BR-02).
+            // REQ-03: the interval must not collide with another CONFIRMED reservation
+            // of the same spot (BR-01, BR-02).
             var overlaps = await HasBlockingOverlapAsync(
                 reservation.SpotId, reservation.StartTime, reservation.EndTime, excludeReservationId: reservation.Id);
 
@@ -193,7 +193,7 @@ public class ReservationService
             return CancelReservationResult.Fail(CancelReservationError.Unauthorized);
         }
 
-        // Zrušení už zrušené rezervace je idempotentní úspěch (BR-03) - zámek netřeba.
+        // Cancelling an already cancelled reservation is an idempotent success (BR-03) - no lock needed.
         if (reservation.State == ReservationState.Cancelled)
         {
             return CancelReservationResult.Ok(reservation.State);
@@ -201,7 +201,7 @@ public class ReservationService
 
         var stateBeforeLock = reservation.State;
 
-        // v0.2 (BR-03): REJECTED/EXPIRED/COMPLETED jsou terminální, není co rušit.
+        // v0.2 (BR-03): REJECTED/EXPIRED/COMPLETED are terminal, nothing left to cancel.
         if (IsTerminalNonCancelled(reservation.State))
         {
             return CancelReservationResult.Fail(CancelReservationError.InvalidState);
@@ -213,7 +213,7 @@ public class ReservationService
         {
             await _db.Entry(reservation).ReloadAsync();
 
-            // Mohlo se mezitím (před ziskem zámku) stát CANCELLED souběžným Cancelem.
+            // It may have become CANCELLED meanwhile (before we got the lock) by a concurrent Cancel.
             if (reservation.State == ReservationState.Cancelled)
             {
                 return CancelReservationResult.Ok(reservation.State);
@@ -229,7 +229,7 @@ public class ReservationService
                 return CancelReservationResult.Fail(CancelReservationError.Conflict);
             }
 
-            // REQ-08 (v0.2): líná detekce vypršení schvalovacího okna i při Cancelu.
+            // REQ-08 (v0.2): lazy detection of the approval window expiry on Cancel as well.
             if (HasApprovalWindowElapsed(reservation))
             {
                 reservation.State = ReservationState.Expired;
@@ -244,9 +244,9 @@ public class ReservationService
                 return CancelReservationResult.Fail(CancelReservationError.TooLate);
             }
 
-            // DRAFT, CONFIRMED nebo PENDING_APPROVAL (v0.2) -> CANCELLED (BR-03).
-            // Check-in je možný až od start (BR-07), takže před start rezervace
-            // nikdy není fyzicky obsazená a stav místa se tu neřeší.
+            // DRAFT, CONFIRMED or PENDING_APPROVAL (v0.2) -> CANCELLED (BR-03).
+            // Check-in is possible only from start (BR-07), so before start the reservation
+            // is never physically occupied and the spot state is not touched here.
             reservation.State = ReservationState.Cancelled;
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
@@ -260,8 +260,8 @@ public class ReservationService
     }
 
     /// <summary>
-    /// OP-05 — Approve Reservation (approve-větev). Volá se uvnitř
-    /// SpotLocks zámku z Confirm/Cancel/Approve/Reject na témže místě.
+    /// OP-05 — Approve Reservation (approve branch). Runs inside the
+    /// SpotLocks lock shared by Confirm/Cancel/Approve/Reject on the same spot.
     /// </summary>
     public async Task<ApproveReservationResult> ApproveReservationAsync(int reservationId, int approverUserId)
     {
@@ -282,7 +282,7 @@ public class ReservationService
         {
             await _db.Entry(reservation).ReloadAsync();
 
-            // REQ-08: líná detekce vypršení - má přednost před ostatními kontrolami.
+            // REQ-08: lazy expiry detection - takes precedence over the other checks.
             if (HasApprovalWindowElapsed(reservation))
             {
                 reservation.State = ReservationState.Expired;
@@ -310,7 +310,7 @@ public class ReservationService
                 return ApproveReservationResult.Fail(ApproveReservationError.SpotInactive);
             }
 
-            // BR-02: interval nesmí kolidovat s jinou CONFIRMED rezervací téhož místa.
+            // BR-02: the interval must not collide with another CONFIRMED reservation of the same spot.
             var overlaps = await HasBlockingOverlapAsync(
                 reservation.SpotId, reservation.StartTime, reservation.EndTime, excludeReservationId: reservation.Id);
 
@@ -331,7 +331,7 @@ public class ReservationService
         }
     }
 
-    /// <summary>OP-05 — Approve Reservation (reject-větev). Žádný overlap/active check (REQ-07).</summary>
+    /// <summary>OP-05 — Approve Reservation (reject branch). No overlap/active check (REQ-07).</summary>
     public async Task<RejectReservationResult> RejectReservationAsync(int reservationId, int approverUserId)
     {
         if (!await IsActiveApproverAsync(approverUserId))
@@ -364,7 +364,7 @@ public class ReservationService
                 return RejectReservationResult.Fail(RejectReservationError.InvalidState);
             }
 
-            // REQ-07: reject vždy uspěje, bez ohledu na overlap nebo aktivitu spotu.
+            // REQ-07: reject always succeeds, regardless of overlap or spot activity.
             reservation.State = ReservationState.Rejected;
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
@@ -377,7 +377,7 @@ public class ReservationService
         }
     }
 
-    /// <summary>REQ-08: platí jen pro PENDING_APPROVAL s nastaveným PendingApprovalSince.</summary>
+    /// <summary>REQ-08: applies only to PENDING_APPROVAL with PendingApprovalSince set.</summary>
     private bool HasApprovalWindowElapsed(Reservation reservation) =>
         reservation.State == ReservationState.PendingApproval &&
         reservation.PendingApprovalSince is DateTime since &&
@@ -387,8 +387,8 @@ public class ReservationService
         state is ReservationState.Rejected or ReservationState.Expired or ReservationState.Completed;
 
     /// <summary>
-    /// Všechny časy jsou UTC (sekce 0 specifikace). Čas s offsetem se převede,
-    /// čas bez zóny se bere jako UTC.
+    /// All times are UTC (section 0 of the specification). A time with an offset is
+    /// converted; a time without a zone is treated as UTC.
     /// </summary>
     private static DateTime ToUtc(DateTime value) => value.Kind switch
     {
@@ -397,7 +397,7 @@ public class ReservationService
         _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
     };
 
-    /// <summary>BR-02: překrývá interval [start, end) nějakou CONFIRMED rezervaci místa? (BR-01)</summary>
+    /// <summary>BR-02: does the interval [start, end) overlap any CONFIRMED reservation of the spot? (BR-01)</summary>
     private Task<bool> HasBlockingOverlapAsync(int spotId, DateTime start, DateTime end, int? excludeReservationId = null) =>
         _db.Reservations.AnyAsync(r =>
             r.SpotId == spotId &&
@@ -407,9 +407,9 @@ public class ReservationService
             start < r.EndTime);
 
     /// <summary>
-    /// Jediné pravidlo dostupnosti pro OP-02 i availability oblasti (REQ-02, BR-06, BR-07):
-    /// místo mimo provoz je vždy nedostupné; fyzicky obsazené místo je nedostupné pro
-    /// interval obsahující aktuální čas; jinak rozhoduje překryv s CONFIRMED rezervacemi.
+    /// The single availability rule for OP-02 and area availability (REQ-02, BR-06, BR-07):
+    /// an out-of-service spot is always unavailable; a physically occupied spot is unavailable
+    /// for an interval containing the current time; otherwise overlap with CONFIRMED reservations decides.
     /// </summary>
     private async Task<bool> IsSpotAvailableAsync(ParkingSpot spot, DateTime start, DateTime end)
     {
@@ -493,8 +493,8 @@ public class ReservationService
         {
             var available = await IsSpotAvailableAsync(spot, start, end);
 
-            // Stav pro daný interval: uložený OutOfService/Occupied má přednost,
-            // Reserved je odvozený z překryvu s CONFIRMED rezervací.
+            // State for the given interval: stored OutOfService/Occupied takes precedence,
+            // Reserved is derived from an overlap with a CONFIRMED reservation.
             var reportedState = spot.State;
             if (reportedState == ParkingSpotState.Free && await HasBlockingOverlapAsync(spot.Id, start, end))
             {
@@ -514,8 +514,8 @@ public class ReservationService
         SetSpotStateAsync(spotId, approverUserId, ParkingSpotState.Free, ParkingSpotState.OutOfService);
 
     /// <summary>
-    /// OP-07 — Check-in (BR-07): Approver zaznamená příjezd vozidla ke konkrétní
-    /// CONFIRMED rezervaci v jejím okně [start, end).
+    /// OP-07 — Check-in (BR-07): the Approver records the arrival of the vehicle for a specific
+    /// CONFIRMED reservation within its window [start, end).
     /// </summary>
     public async Task<ParkingSpotOperationResult> CheckInAsync(int reservationId, int approverUserId)
     {
@@ -565,8 +565,8 @@ public class ReservationService
     }
 
     /// <summary>
-    /// OP-07 — Check-out (BR-07): odjezd vozidla; rezervace přejde do COMPLETED
-    /// a přestane blokovat zbytek svého okna, místo je znovu FREE.
+    /// OP-07 — Check-out (BR-07): departure of the vehicle; the reservation moves to COMPLETED
+    /// and stops blocking the rest of its window, the spot is FREE again.
     /// </summary>
     public async Task<ParkingSpotOperationResult> CheckOutAsync(int reservationId, int approverUserId)
     {
@@ -620,14 +620,14 @@ public class ReservationService
             return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
         }
 
-        // Stejný zámek jako Confirm/Approve, které čtou IsActive (BR-06).
+        // The same lock as Confirm/Approve, which read IsActive (BR-06).
         var spotLock = SpotLocks.Get(spotId);
         await spotLock.WaitAsync();
         try
         {
             await _db.Entry(spot).ReloadAsync();
 
-            // OUT_OF_SERVICE jen z FREE (ne při fyzickém obsazení), restore jen z OUT_OF_SERVICE.
+            // OUT_OF_SERVICE only from FREE (not while physically occupied), restore only from OUT_OF_SERVICE.
             if (spot.State != expected)
             {
                 return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);

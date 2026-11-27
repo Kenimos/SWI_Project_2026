@@ -1,8 +1,8 @@
 namespace ParkingReservation.Api.Services;
 
 /// <summary>
-/// Zdroj "current time" pro OP-03/OP-04 (server UTC time, viz Assumption
-/// v docs/specification.md). Abstrakce kvůli deterministickým testům.
+/// Source of "current time" (server UTC time, see section 0 of
+/// docs/specification.md). An abstraction for deterministic tests.
 /// </summary>
 public interface IClock
 {

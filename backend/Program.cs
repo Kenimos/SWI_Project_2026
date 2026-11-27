@@ -11,20 +11,20 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 
-// Enumy v JSON jako text ("Garage", "Standard"), stejně jako v DB; čísla se dál přijímají.
+// Enums in JSON as text ("Garage", "Standard"), the same as in the DB; numbers are still accepted.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSwaggerGen();
 
-// SQLite databáze; connection string je v appsettings.json (ConnectionStrings:DefaultConnection).
+// SQLite database; the connection string is in appsettings.json (ConnectionStrings:DefaultConnection).
 builder.Services.AddDbContext<ParkingDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddSingleton<IClock, SystemClock>();
 
-// v0.2 - délka schvalovacího okna (REQ-08) je v docs/specification.md výslovně
-// TBD; "Reservations:ApprovalWindowHours" v appsettings.json je jen demonstrační
-// placeholder (default 24h), ne odsouhlasené business pravidlo.
+// v0.2 - the approval window length (REQ-08) is explicitly TBD in
+// docs/specification.md; "Reservations:ApprovalWindowHours" in appsettings.json is only
+// a demonstration placeholder (default 24h), not an agreed business rule.
 var approvalWindow = TimeSpan.FromHours(builder.Configuration.GetValue("Reservations:ApprovalWindowHours", 24.0));
 builder.Services.AddScoped(sp =>
     new ReservationService(sp.GetRequiredService<ParkingDbContext>(), sp.GetRequiredService<IClock>(), approvalWindow));
@@ -129,7 +129,7 @@ app.MapPost("/reservations/{id:int}/cancel", async (int id, CancelReservationReq
 .WithName("CancelReservation")
 .WithOpenApi();
 
-// OP-05 — Approve Reservation: approve-větev (docs/specification.md, v0.2)
+// OP-05 — Approve Reservation: approve branch (docs/specification.md, v0.2)
 app.MapPost("/reservations/{id:int}/approve", async (int id, ApproveReservationRequest request, ReservationService service) =>
 {
     var result = await service.ApproveReservationAsync(id, request.ApproverUserId);
@@ -154,7 +154,7 @@ app.MapPost("/reservations/{id:int}/approve", async (int id, ApproveReservationR
 .WithName("ApproveReservation")
 .WithOpenApi();
 
-// OP-05 — Approve Reservation: reject-větev (docs/specification.md, v0.2)
+// OP-05 — Approve Reservation: reject branch (docs/specification.md, v0.2)
 app.MapPost("/reservations/{id:int}/reject", async (int id, RejectReservationRequest request, ReservationService service) =>
 {
     var result = await service.RejectReservationAsync(id, request.ApproverUserId);
@@ -306,5 +306,5 @@ app.MapPost("/reservations/{id:int}/check-out", async (int id, CheckOutReservati
 
 app.Run();
 
-// Pro xUnit testy přes WebApplicationFactory<Program>.
+// For xUnit tests through WebApplicationFactory<Program>.
 public partial class Program { }

@@ -7,9 +7,9 @@ using ParkingReservation.Api.Services;
 namespace ParkingReservation.Api.Tests;
 
 /// <summary>
-/// C02 verification examples pro OP-03 Confirm Reservation a OP-04 Cancel
-/// Reservation (viz docs/specification.md). "Current time" je řízený přes
-/// FakeClock, aby byly testy nezávislé na reálném datu.
+/// C02 verification examples for OP-03 Confirm Reservation and OP-04 Cancel
+/// Reservation (see docs/specification.md). "Current time" is controlled through
+/// FakeClock, so the tests do not depend on the real date.
 /// </summary>
 public class ReservationConfirmCancelTests : IDisposable
 {
@@ -19,12 +19,12 @@ public class ReservationConfirmCancelTests : IDisposable
     private readonly ReservationService _service;
     private readonly int _areaId;
 
-    // Pevný referenční okamžik "teď", vůči kterému jsou start/end testů počítané.
+    // Fixed reference moment "now" that the test start/end times are computed from.
     private static readonly DateTime Now = new(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    // Placeholder hodnota pro testy OP-03/OP-04 (bez schvalování) - přesná délka
-    // je TBD, viz OP-05 v docs/specification.md. Testy expirace (OP-05) používají
-    // vlastní, mnohem kratší okno.
+    // Placeholder value for the OP-03/OP-04 tests (without approval) - the exact length
+    // is TBD, see OP-05 in docs/specification.md. The expiry tests (OP-05) use
+    // their own, much shorter window.
     private static readonly TimeSpan ApprovalWindow = TimeSpan.FromHours(24);
 
     public ReservationConfirmCancelTests()
@@ -100,7 +100,7 @@ public class ReservationConfirmCancelTests : IDisposable
     [Fact]
     public async Task Confirm_succeeds_when_intervals_only_touch_at_boundary()
     {
-        // BR-01: [start,end) - konec existující CONFIRMED (2:00) se nepřekrývá se začátkem nové (2:00).
+        // BR-01: [start,end) - the end of the existing CONFIRMED (2:00) does not overlap the start of the new one (2:00).
         var spot = await AddSpotAsync();
         await AddReservationAsync(spot.Id, Now.AddHours(1), Now.AddHours(2), ReservationState.Confirmed);
         var draft = await AddReservationAsync(spot.Id, Now.AddHours(2), Now.AddHours(3));
@@ -168,8 +168,8 @@ public class ReservationConfirmCancelTests : IDisposable
         var draftA = await AddReservationAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
         var draftB = await AddReservationAsync(spot.Id, Now.AddHours(1.5), Now.AddHours(2.5));
 
-        // Každé "souběžné" volání má vlastní DbContext/service, stejně jako
-        // dva nezávislé HTTP požadavky v ASP.NET Core (scoped DbContext).
+        // Each "concurrent" call has its own DbContext/service, just like
+        // two independent HTTP requests in ASP.NET Core (scoped DbContext).
         var optionsA = new DbContextOptionsBuilder<ParkingDbContext>().UseSqlite($"Data Source={_dbPath}").Options;
         var optionsB = new DbContextOptionsBuilder<ParkingDbContext>().UseSqlite($"Data Source={_dbPath}").Options;
         using var dbA = new ParkingDbContext(optionsA);
@@ -210,7 +210,7 @@ public class ReservationConfirmCancelTests : IDisposable
         Assert.True(cancelResult.Success);
         Assert.Equal(ReservationState.Cancelled, cancelResult.State);
 
-        // Postcondition: "no longer blocks its ParkingSpot" - ověřeno přes OP-02.
+        // Postcondition: "no longer blocks its ParkingSpot" - verified through OP-02.
         var availability = await _service.CheckAvailabilityAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
         Assert.True(availability.Available);
     }

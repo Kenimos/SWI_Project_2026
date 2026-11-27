@@ -1,37 +1,37 @@
 # Parking Reservation System — Specification
 
-Stav: **Baseline v0.2.1 — opravná revize 27.11.2026** (vychází z Baseline v0.2 schválené týmem 25.10.2026; v0.2.1 doplňuje rozhodnutí o autorizaci, stav parkovacího místa, OP-06 a OP-07 — viz sekce 6).
+Status: **Baseline v0.2.1 — corrective revision 27 Nov 2026** (based on Baseline v0.2 approved by the team on 25 Oct 2026; v0.2.1 adds the authorization decision, the parking spot state, OP-06 and OP-07 — see section 6).
 
 Domain reference: [intent-and-change.md](intent-and-change.md) (Project Frame z C01).
 
 ---
 
-## 0. Rozhodnutí přijatá před psaním operací
+## 0. Decisions made before writing the operations
 
-> Odsouhlaseno týmem (2026-10-02).
+> Agreed by the team (2026-10-02).
 
-**Resource:** `ParkingSpot` je **exkluzivní** resource — v jednom okamžiku na něm může být nejvýše jedna `CONFIRMED` rezervace (ne kapacitní sdílení).
+**Resource:** `ParkingSpot` is an **exclusive** resource — at any moment it can have at most one `CONFIRMED` reservation (no capacity sharing).
 
 **Cancellation policy (BR-03):**
-`DRAFT` nebo `CONFIRMED` rezervaci lze zrušit kdykoliv před `Reservation.start` (porovnává se proti serverovému UTC času). Pokus o zrušení již `CANCELLED` rezervace je idempotentní úspěch (zůstává `CANCELLED`, žádná chyba). Pokud `start` nastal nebo uplynul, Cancel je odmítnut. Pokud se `Cancel` a `Confirm` potkají současně na téže rezervaci, vyhrává ten požadavek, který se zapíše do databáze jako první (řeší se transakcí/optimistickým zámkem v architektuře C03 — zde jen definujeme pozorovatelný výsledek: nejvýše jeden z nich uspěje).
+A `DRAFT` or `CONFIRMED` reservation can be cancelled any time before `Reservation.start` (compared against the server UTC time). Cancelling an already `CANCELLED` reservation is an idempotent success (it stays `CANCELLED`, no error). If `start` has been reached or passed, Cancel is rejected. If `Cancel` and `Confirm` meet on the same reservation at the same time, the request persisted to the database first wins (handled by a transaction/lock in the C03 architecture — here we only define the observable result: at most one of them succeeds).
 
-**Časová osa:** veškeré časy (`start`, `end`, `currentTime`) jsou UTC (navazuje na ADR-003 z C01). Čas zaslaný s offsetem se převede na UTC, čas bez zóny se bere jako UTC (v0.2.1).
+**Time axis:** all times (`start`, `end`, `currentTime`) are UTC (follows ADR-003 from C01). A time sent with an offset is converted to UTC; a time without a zone is treated as UTC (v0.2.1).
 
-**Autorizace (rozhodnuto v v0.2.1, nahrazuje dřívější TBD v OP-01, OP-03, OP-04, OP-05):** uživatel má roli `Driver` nebo `Approver` a příznak `IsActive`.
-- Create (OP-01) smí jen aktivní `Driver`.
-- Confirm (OP-03) a Cancel (OP-04) smí jen aktivní `Driver`, který rezervaci vytvořil (vlastník).
-- Approve/Reject (OP-05), správu oblastí a míst (OP-06) a check-in/check-out (OP-07) smí kterýkoli aktivní `Approver`; omezení na konkrétní oblast není v rozsahu.
-- Check Availability (OP-02) je veřejné čtení.
-- Identita je lokální (`userId` v požadavku), externí identity provider je mimo rozsah (ADR-006, riziko v evidence).
+**Authorization (decided in v0.2.1, replaces the earlier TBDs in OP-01, OP-03, OP-04, OP-05):** a user has the role `Driver` or `Approver` and an `IsActive` flag.
+- Create (OP-01) is allowed only for an active `Driver`.
+- Confirm (OP-03) and Cancel (OP-04) are allowed only for the active `Driver` who created the reservation (the owner).
+- Approve/Reject (OP-05), managing areas and spots (OP-06) and check-in/check-out (OP-07) are allowed for any active `Approver`; restricting an Approver to a specific area is out of scope.
+- Check Availability (OP-02) is a public read.
+- Identity is local (`userId` in the request); an external identity provider is out of scope (ADR-006, risk in the evidence).
 
 ---
 
-## 1. Doménová pravidla a invarianty (BR)
+## 1. Domain rules and invariants (BR)
 
-> Definováno jednou, operace na tato pravidla jen odkazují.
+> Defined once; operations only reference these rules.
 
 ### BR-01 — Interval semantics
-Reservation intervals use `[start,end)` semantics (konec intervalu je exkluzivní).
+Reservation intervals use `[start,end)` semantics (the end of the interval is exclusive).
 
 ### BR-02 — Exclusive Resource invariant
 At no committed system state may two `CONFIRMED` Reservations overlap for the same `ParkingSpot`.
@@ -40,7 +40,7 @@ At no committed system state may two `CONFIRMED` Reservations overlap for the sa
 A `DRAFT`, `CONFIRMED`, or `PENDING_APPROVAL` (v0.2) Reservation may be cancelled any time before `Reservation.start` (server UTC time). Cancelling an already `CANCELLED` Reservation is an idempotent success. A Reservation whose `start` has been reached or passed cannot be cancelled. A Reservation in a terminal non-cancelled state (`REJECTED`, `EXPIRED` - v0.2) cannot be cancelled either, since there is nothing left to withdraw. If `Cancel` and `Confirm`/`Approve` race on the same Reservation, at most one of them succeeds (whichever is persisted first).
 
 ### BR-04 — Domain-specific rule from C01
-Rezervaci `ParkingSpot` typu `EV_CHARGING` nebo `DISABLED` smí vytvořit pouze uživatel, jehož vozidlo/oprávnění odpovídajícímu typu skutečně odpovídá (elektromobil, ZTP průkaz) — ověřuje se při `Create Reservation`. (Převzato z [intent-and-change.md](intent-and-change.md).)
+A Reservation of a `ParkingSpot` of type `EV_CHARGING` or `DISABLED` may be created only by a user whose vehicle/permit actually matches that type (electric vehicle, disabled parking permit) — checked at `Create Reservation`. (Taken from [intent-and-change.md](intent-and-change.md).)
 
 ### BR-05 — Approval gate (v0.2)
 A Reservation on a `ParkingSpot` with `RequiresApproval = true` can reach `CONFIRMED` only via `Approve` (OP-05), never directly via `Confirm` (OP-03). A Reservation on a `ParkingSpot` with `RequiresApproval = false` is unaffected and confirms directly, as in v0.1.
@@ -53,7 +53,7 @@ The stored spot state reflects only operation and physical presence: `FREE`, `OC
 
 ---
 
-## 2. Operace
+## 2. Operations
 
 ### OP-01 — Create Reservation
 
@@ -117,8 +117,8 @@ BR-04 eligibility depends on static vehicle/user attributes, not on
 concurrent reservations, so it is checked here rather than at Confirm.
 
 Assumption / unknown / TBD:
-TBD — zdroj informace "vozidlo je elektromobil / má ZTP" (součást
-požadavku na vytvoření, nebo profil uživatele?) zatím není určen.
+TBD — the source of the information "the vehicle is electric / has a
+disabled permit" (part of the create request, or the user profile?) is not decided yet.
 ```
 
 ### OP-02 — Check Availability
@@ -170,7 +170,7 @@ allocate, so it is still allowed on an inactive ParkingSpot.
 
 Assumption / unknown / TBD:
 DRAFT reservations do not block availability — only CONFIRMED ones do
-(plyne z BR-02 a z toho, že OP-01 ještě neallokuje spot).
+(follows from BR-02 and from the fact that OP-01 does not allocate the spot yet).
 ```
 
 ### OP-03 — Confirm Reservation
@@ -370,31 +370,31 @@ TBD — whether cancellation sends a notification and how Notification
 Service failure affects the result.
 ```
 
-### OP-04 — Cancel Reservation *(dodatek pro v0.2)*
+### OP-04 — Cancel Reservation *(addendum for v0.2)*
 
-Text výše (v0.1) zůstává platný; `PENDING_APPROVAL` se do něj přidává stejně jako `DRAFT`/`CONFIRMED`, `REJECTED`/`EXPIRED` jsou nově vyloučené (nejde je zrušit):
+The text above (v0.1) remains valid; `PENDING_APPROVAL` is added to it in the same way as `DRAFT`/`CONFIRMED`, while `REJECTED`/`EXPIRED` are newly excluded (they cannot be cancelled):
 
 ```
-REQ-05 (v0.2 dodatek):
+REQ-05 (v0.2 addendum):
 The system shall also transition a PENDING_APPROVAL Reservation to
 CANCELLED under the same condition (current time < start), per BR-03.
 A Reservation in state REJECTED or EXPIRED cannot be cancelled - the
 request is rejected as an invalid source state (there is no pending
 allocation or request left to withdraw).
 
-State change (v0.2 dodatek):
+State change (v0.2 addendum):
 PENDING_APPROVAL → CANCELLED
 
-Verification examples (v0.2 dodatek):
+Verification examples (v0.2 addendum):
 PENDING_APPROVAL + current time < start → CANCELLED
 REJECTED or EXPIRED (any time) → rejected; invalid source state
 ```
 
 ---
 
-## 3. Diagramy
+## 3. Diagrams
 
-### 3a. Use case diagram (aktéři a cíle) — v0.2
+### 3a. Use case diagram (actors and goals) — v0.2
 
 ```mermaid
 flowchart LR
@@ -414,9 +414,9 @@ flowchart LR
     Approver --> UC5
 ```
 
-v0.2 dodatek: přibyl aktér **Approver** a cíl **Approve / Reject Reservation** (OP-05). Ostatní cíle a aktér Driver jsou beze změny oproti v0.1.
+v0.2 addendum: the actor **Approver** and the goal **Approve / Reject Reservation** (OP-05) were added. The other goals and the Driver actor are unchanged from v0.1.
 
-### 3b. Stavový diagram Reservation — v0.2
+### 3b. Reservation state diagram — v0.2
 
 ```mermaid
 stateDiagram-v2
@@ -432,15 +432,15 @@ stateDiagram-v2
     CONFIRMED --> COMPLETED: check-out [after check-in, OP-07 v0.2.1]
 ```
 
-Poznámky:
-- Ze stavů `CONFIRMED`, `CANCELLED`, `REJECTED`, `EXPIRED` nevede žádný přechod `confirm`/`approve`/`reject`; takové požadavky jsou odmítnuty (OP-03/OP-05).
-- Zamítnutý `confirm`/`approve` (neaktivní spot, překryv, souběh, start již nastal nebo uplynul) stav nemění — Reservation zůstává v původním stavu (`DRAFT`, resp. `PENDING_APPROVAL`).
-- `cancel` už `CANCELLED` rezervace je idempotentní úspěch bez změny stavu (BR-03); `cancel` na `REJECTED`/`EXPIRED` je odmítnut (BR-03 v0.2 - nic k vzetí zpět).
-- `REJECTED`, `EXPIRED` a `COMPLETED` (v0.2.1) jsou terminální - nevede z nich žádný další přechod.
-- Check-in (OP-07) stav rezervace nemění, jen zaznamená `CheckedInAt` a obsadí místo (BR-07).
-- v0.1 (bez `RequiresApproval`) odpovídá přesně hraně `DRAFT --> CONFIRMED` nahoře — nic se pro tyto spoty nemění.
+Notes:
+- No `confirm`/`approve`/`reject` transition leads from `CONFIRMED`, `CANCELLED`, `REJECTED`, `EXPIRED`; such requests are rejected (OP-03/OP-05).
+- A rejected `confirm`/`approve` (inactive spot, overlap, race, start already reached or passed) does not change the state — the Reservation stays in its original state (`DRAFT` or `PENDING_APPROVAL`).
+- `cancel` of an already `CANCELLED` reservation is an idempotent success without a state change (BR-03); `cancel` on `REJECTED`/`EXPIRED` is rejected (BR-03 v0.2 — nothing left to withdraw).
+- `REJECTED`, `EXPIRED` and `COMPLETED` (v0.2.1) are terminal — no further transition leads from them.
+- Check-in (OP-07) does not change the reservation state; it only records `CheckedInAt` and occupies the spot (BR-07).
+- v0.1 (without `RequiresApproval`) corresponds exactly to the `DRAFT --> CONFIRMED` edge above — nothing changes for those spots.
 
-### 3d. Diagram aktivit — Confirm/Approve větvení (v0.2)
+### 3d. Activity diagram — Confirm/Approve branching (v0.2)
 
 ```mermaid
 flowchart TD
@@ -455,10 +455,10 @@ flowchart TD
     CheckOverlap -- yes --> Reject4[Reject: overlap]
     CheckOverlap -- no --> SetConfirmed[State = CONFIRMED]
     CheckApproval -- yes --> SetPending[State = PENDING_APPROVAL]
-    SetPending -.->|later: Approve, OP-05| ApproveLater[Approve/Reject rozhoduje Approver]
+    SetPending -.->|later: Approve, OP-05| ApproveLater[Approver decides Approve/Reject]
 ```
 
-### 3c. Diagram aktivit
+### 3c. Activity diagram — Cancel Reservation
 
 ```mermaid
 flowchart TD
@@ -490,125 +490,128 @@ Cancel request to be rejected (BR-03).
 
 ---
 
-## 4. Kontrola konzistence (bod 10 ze zadání)
+## 4. Consistency check (item 10 of the assignment)
 
-| Kontrola | Stav | Poznámka |
+| Check | Status | Note |
 |---|---|---|
-| Create vs. Confirm | ☑ | Create (OP-01) nikdy nealokuje spot (žádná kontrola overlapu); exkluzivita (BR-02) se vynucuje až při Confirm (OP-03). Konzistentní. |
-| Availability vs. Confirm | ☑ | **Vyřešeno (odsouhlaseno týmem 2026-10-11):** REQ-02 nově zohledňuje `ParkingSpot.IsActive` stejně jako OP-03 — neaktivní spot je vždy `UNAVAILABLE`, bez ohledu na rezervace. Create (OP-01) zůstává beze změny, protože jen zaznamenává záměr a nic nealokuje. |
-| Cancel vs. stavový diagram | ☑ | OP-04 state changes match BR-03 and section 3b. |
-| Význam intervalů napříč operacemi | ☑ | OP-01, OP-02, OP-03 důsledně používají `[start,end)` (BR-01); hraniční příklad v OP-03 (dotyk v 11:00) odpovídá OP-02. |
+| Create vs. Confirm | ☑ | Create (OP-01) never allocates the spot (no overlap check); exclusivity (BR-02) is enforced only at Confirm (OP-03). Consistent. |
+| Availability vs. Confirm | ☑ | **Resolved (agreed by the team 2026-10-11):** REQ-02 now takes `ParkingSpot.IsActive` into account in the same way as OP-03 — an inactive spot is always `UNAVAILABLE`, regardless of reservations. Create (OP-01) stays unchanged, because it only records intent and allocates nothing. |
+| Cancel vs. state diagram | ☑ | OP-04 state changes match BR-03 and section 3b. |
+| Meaning of intervals across operations | ☑ | OP-01, OP-02, OP-03 consistently use `[start,end)` (BR-01); the boundary example in OP-03 (touching at 11:00) matches OP-02. |
 | Use-case diagram vs. text | ☑ | The diagram covers the user goals in OP-01 through OP-04. |
-| Požadavek vs. návrhové rozhodnutí | ☑ | Žádný požadavek nepředepisuje implementaci/technologii (DB, framework) — jen pozorovatelné chování. |
-| Nejistota vs. vymyšlená přesnost | ☑ | Nejasné body (autorizace, Notification Service, přesnost hodin, fairness při souběhu) jsou všude explicitně označené jako Assumption/TBD, ne vymyšlené natvrdo. |
+| Requirement vs. design decision | ☑ | No requirement prescribes an implementation/technology (DB, framework) — only observable behavior. |
+| Uncertainty vs. invented precision | ☑ | Unclear points (authorization, Notification Service, clock accuracy, fairness under concurrency) are explicitly marked as Assumption/TBD everywhere, not invented. |
 
-**Schváleno jako Specification Baseline v0.1:** ☑ ano / datum: 11.10.2026 / kým: Jan Ječmínek
+**Approved as Specification Baseline v0.1:** ☑ yes / date: 11 Oct 2026 / by: Jan Ječmínek
 
 ---
 
-## 5. Část B — Změna: schvalovací proces
+## 5. Part B — Change: approval workflow
 
-> Návrh vznikl v C02 s pomocí AI, tým ho prošel a **schválil 25.10.2026** jako Baseline v0.2 (viz konec sekce). Text níže je zachován v podobě, v jaké byl schválen.
+> The proposal was drafted in C02 with AI assistance; the team reviewed it and **approved it on 25 Oct 2026** as Baseline v0.2 (see the end of the section). The text below is kept as approved.
 
-**Změna C02 (zadání):** Některé Resources vyžadují schválení oprávněnou osobou dříve, než se Reservation může stát CONFIRMED. Schválení může být opožděno, zamítnuto nebo může vypršet.
+**C02 change (assignment):** Some Resources require approval by an authorized person before a Reservation can become CONFIRMED. The approval may be delayed, rejected, or it may expire.
 
-**Klíčová rozhodnutí (navrženo):**
-- Které ParkingSpot vyžadují schválení je dáno novým atributem `ParkingSpot.RequiresApproval` (bool), nezávislým na `Type` — "některé", ne celá kategorie.
-- Pro spot **bez** `RequiresApproval` se nic nemění — Confirm (OP-03) funguje přesně jako ve v0.1.
-- Pro spot **s** `RequiresApproval` se Confirm nerozděluje na novou operaci "požádat o schválení" — zůstává to stále Confirm (stejný trigger, stejný formulář), jen jeho výsledkem při `RequiresApproval = true` není rovnou `CONFIRMED`, ale `PENDING_APPROVAL`. Nově vzniká **OP-05 Approve Reservation**, kterou provádí nový aktér (Approver), a teprve ta vede k `CONFIRMED` nebo `REJECTED`.
+**Key decisions (proposed):**
+- Which ParkingSpots require approval is given by a new attribute `ParkingSpot.RequiresApproval` (bool), independent of `Type` — "some", not a whole category.
+- For a spot **without** `RequiresApproval` nothing changes — Confirm (OP-03) works exactly as in v0.1.
+- For a spot **with** `RequiresApproval`, Confirm is not split into a new "request approval" operation — it is still Confirm (same trigger, same form), only its result for `RequiresApproval = true` is not `CONFIRMED` directly but `PENDING_APPROVAL`. A new **OP-05 Approve Reservation** is introduced, performed by a new actor (Approver), and only that leads to `CONFIRMED` or `REJECTED`.
 
-### Analýza dopadu (bod 12)
+### Impact analysis (item 12)
 
-| Oblast | Odpověď |
+| Area | Answer |
 |---|---|
-| Create | Beze změny. Create pořád jen zaznamenává záměr (DRAFT) a `RequiresApproval` flag spotu při Create vůbec nekontroluje — ten hraje roli až při Confirm. |
-| Availability | Beze změny v logice, jen nová úvaha: `PENDING_APPROVAL` **neblokuje** dostupnost, stejně jako `DRAFT` dnes neblokuje — blokuje jen `CONFIRMED` (BR-02). Důvod: schválení může být zamítnuto nebo vypršet, takže by bylo špatné dočasně "zamknout" slot jen kvůli čekající žádosti. |
-| Confirm | Mění se: již to není vždy okamžitá operace. Pro `RequiresApproval = false` beze změny (→ CONFIRMED). Pro `RequiresApproval = true` → `PENDING_APPROVAL` (bez kontroly overlapu — ta se přesouvá až do Approve, stejnou logikou, jako dnes Create nekontroluje overlap a až Confirm ano). |
-| Approve | Vzniká nová operace (OP-05) a nový aktér (Approver/schvalovatel). Kdo přesně smí schvalovat, je TBD (stejně jako "kdo smí confirm/cancel" ve v0.1). |
-| Cancel | Rozšiřuje se: `PENDING_APPROVAL` lze zrušit (requester může vzít žádost zpět, než se o ní rozhodne), stejnou podmínkou `now < start` jako dnes u DRAFT/CONFIRMED (BR-03). `REJECTED` a `EXPIRED` jsou nové terminální stavy - cancel na nich je odmítnut (nejsou to "aktivní" rezervace). |
-| Stavový diagram | Přibývají stavy `PENDING_APPROVAL`, `REJECTED`, `EXPIRED` a přechody `confirm` (podmíněný `RequiresApproval`), `approve`, `reject`, časové vypršení. Viz upravený diagram 3b níže. |
-| Diagram případů užití | Přibývá aktér Approver a cíl "Approve/Reject Reservation". Viz upravený diagram 3a níže. |
-| Ověření | Nové verification examples v OP-03 (přesun do PENDING_APPROVAL) a OP-05 (approve/reject/expired). Testováno v `tests/` (viz evidence). |
-| Architektura | Expirace vyžaduje znalost "jak dlouho už čekáme" → nové perzistentní pole na Reservation. V C02 řešeno líně (kontrola při každém dotyku rezervace), ne časovačem/joblist — to je architektonický driver pro C03 (viz níže). Approve/Reject navíc posiluje důvod pro Notification Service boundary (upozornit requestera na výsledek, upozornit Approvera na novou žádost). |
+| Create | Unchanged. Create still only records intent (DRAFT) and does not check the spot's `RequiresApproval` flag at all — that matters only at Confirm. |
+| Availability | Logic unchanged, only a new consideration: `PENDING_APPROVAL` **does not block** availability, just as `DRAFT` does not block today — only `CONFIRMED` blocks (BR-02). Reason: an approval can be rejected or expire, so it would be wrong to temporarily "lock" the slot just because of a pending request. |
+| Confirm | Changes: it is no longer always an immediate operation. For `RequiresApproval = false` unchanged (→ CONFIRMED). For `RequiresApproval = true` → `PENDING_APPROVAL` (without an overlap check — it moves to Approve, by the same logic as Create does not check overlap today and Confirm does). |
+| Approve | A new operation (OP-05) and a new actor (Approver) are introduced. Who exactly may approve is TBD (just like "who may confirm/cancel" in v0.1). |
+| Cancel | Extended: `PENDING_APPROVAL` can be cancelled (the requester can withdraw the request before it is decided), under the same condition `now < start` as DRAFT/CONFIRMED today (BR-03). `REJECTED` and `EXPIRED` are new terminal states — cancel on them is rejected (they are not "active" reservations). |
+| State diagram | New states `PENDING_APPROVAL`, `REJECTED`, `EXPIRED` and transitions `confirm` (conditioned by `RequiresApproval`), `approve`, `reject`, time-based expiry. See the updated diagram 3b. |
+| Use case diagram | New actor Approver and goal "Approve/Reject Reservation". See the updated diagram 3a. |
+| Verification | New verification examples in OP-03 (move to PENDING_APPROVAL) and OP-05 (approve/reject/expired). Tested in `tests/` (see evidence). |
+| Architecture | Expiry requires knowing "how long we have been waiting" → a new persistent field on Reservation. In C02 handled lazily (checked whenever the reservation is touched), not by a timer/job — that is an architecture driver for C03 (see below). Approve/Reject also strengthens the case for the Notification Service boundary (notify the requester of the result, notify the Approver of a new request). |
 
-### Dopad změny C02 (bod 13)
+### Impact of the C02 change (item 13)
 
 ```
-Změněná podmínka:
-Některé ParkingSpot (flag RequiresApproval) vyžadují schválení oprávněnou
-osobou (Approver), než Reservation dosáhne CONFIRMED; schválení může být
-zpožděno, zamítnuto (REJECTED), nebo může vypršet (EXPIRED).
+Changed condition:
+Some ParkingSpots (flag RequiresApproval) require approval by an authorized
+person (Approver) before a Reservation reaches CONFIRMED; the approval may be
+delayed, rejected (REJECTED), or it may expire (EXPIRED).
 
-Dotčené požadavky / části specifikace:
-- OP-03 (REQ-03): rozšířeno o podmínku RequiresApproval - viz upravený text.
-- BR-03 (cancellation policy): rozšířeno o PENDING_APPROVAL jako zrušitelný
-  stav.
-- Stavový diagram (3b) a use-case diagram (3a): aktualizovány na v0.2.
+Affected requirements / parts of the specification:
+- OP-03 (REQ-03): extended by the RequiresApproval condition - see the
+  updated text.
+- BR-03 (cancellation policy): extended by PENDING_APPROVAL as a cancellable
+  state.
+- State diagram (3b) and use case diagram (3a): updated to v0.2.
 
-Nedotčené požadavky / části + proč:
-- OP-01 Create: beze změny - Create nerozlišuje RequiresApproval, pořád jen
-  zaznamenává záměr jako DRAFT.
-- OP-02 Check Availability (REQ-02): beze změny - PENDING_APPROVAL/REJECTED/
-  EXPIRED nejsou CONFIRMED, takže do výpočtu dostupnosti nevstupují už podle
-  stávajícího znění REQ-02 (jen IsActive + CONFIRMED overlap).
-- BR-01 (interval semantics), BR-02 (exclusive resource invariant): beze
-  změny - overlap se pořád počítá jen mezi CONFIRMED rezervacemi, jen se
-  posouvá okamžik, kdy k němu u schvalovaných míst dochází (Approve místo
+Unaffected requirements / parts + why:
+- OP-01 Create: unchanged - Create does not distinguish RequiresApproval, it
+  still only records intent as DRAFT.
+- OP-02 Check Availability (REQ-02): unchanged - PENDING_APPROVAL/REJECTED/
+  EXPIRED are not CONFIRMED, so they do not enter the availability
+  calculation already under the current wording of REQ-02 (only IsActive +
+  CONFIRMED overlap).
+- BR-01 (interval semantics), BR-02 (exclusive resource invariant):
+  unchanged - overlap is still computed only between CONFIRMED reservations;
+  only the moment it happens moves for approval spots (Approve instead of
   Confirm).
-- BR-04 (EV/DISABLED eligibility z C01): beze změny, nezávislé pravidlo.
+- BR-04 (EV/DISABLED eligibility from C01): unchanged, independent rule.
 
-Nový aktér / operace, pokud vznikne:
-- Aktér: Approver (schvalovatel) - oprávněná osoba rozhodující o žádostech
-  na spotech s RequiresApproval = true. Přesný rozsah oprávnění je TBD.
-- Operace: OP-05 Approve Reservation (zahrnuje i explicitní reject).
+New actor / operation, if any:
+- Actor: Approver - an authorized person deciding requests on spots with
+  RequiresApproval = true. The exact scope of authority is TBD.
+- Operation: OP-05 Approve Reservation (includes an explicit reject).
 
-Změněná pravidla / význam stavů:
-- BR-03 rozšířeno: PENDING_APPROVAL lze zrušit stejnou podmínkou (now <
-  start) jako DRAFT/CONFIRMED.
-- Nové BR-05 (viz sekce 1): CONFIRMED lze u RequiresApproval spotu dosáhnout
-  jen přes Approve, nikdy přímo přes Confirm.
-- REJECTED a EXPIRED jsou nové terminální stavy, bez návratu.
+Changed rules / meaning of states:
+- BR-03 extended: PENDING_APPROVAL can be cancelled under the same condition
+  (now < start) as DRAFT/CONFIRMED.
+- New BR-05 (see section 1): CONFIRMED can be reached for a RequiresApproval
+  spot only via Approve, never directly via Confirm.
+- REJECTED and EXPIRED are new terminal states, with no way back.
 
-Změna diagramu případů užití:
-Přidán aktér Approver a cíl "Approve / Reject Reservation" (viz 3a).
+Use case diagram change:
+Added actor Approver and goal "Approve / Reject Reservation" (see 3a).
 
-Změna stavového diagramu:
-Přidány stavy PENDING_APPROVAL, REJECTED, EXPIRED a přechody confirm
-(podmíněno RequiresApproval), approve, reject, expirace (viz 3b).
+State diagram change:
+Added states PENDING_APPROVAL, REJECTED, EXPIRED and transitions confirm
+(conditioned by RequiresApproval), approve, reject, expiry (see 3b).
 
-Nové příklady ověření:
-- Confirm na RequiresApproval spotu -> PENDING_APPROVAL (ne CONFIRMED).
-- Approve úspěšný (aktivní spot, now<start, žádný overlap) -> CONFIRMED.
-- Approve s overlapem -> odmítnuto, zůstává PENDING_APPROVAL.
-- Reject -> REJECTED (terminální).
-- PENDING_APPROVAL po vypršení okna -> EXPIRED při dalším dotyku.
-- Cancel na PENDING_APPROVAL před start -> CANCELLED.
-- Cancel na REJECTED/EXPIRED -> odmítnuto (neplatný zdrojový stav).
+New verification examples:
+- Confirm on a RequiresApproval spot -> PENDING_APPROVAL (not CONFIRMED).
+- Successful approve (active spot, now<start, no overlap) -> CONFIRMED.
+- Approve with an overlap -> rejected, stays PENDING_APPROVAL.
+- Reject -> REJECTED (terminal).
+- PENDING_APPROVAL after the window elapsed -> EXPIRED on next access.
+- Cancel on PENDING_APPROVAL before start -> CANCELLED.
+- Cancel on REJECTED/EXPIRED -> rejected (invalid source state).
 
-Architektonické drivery pro C03:
-- Expirace je teď řešena líným přepočtem při každém sáhnutí na rezervaci,
-  ne časovačem - rezervace, na kterou nikdo nesáhne, zůstane "fakticky
-  expirovaná, ale formálně PENDING_APPROVAL" v DB, dokud ji něco nenačte.
-  Potřeba buď background job, nebo scheduled query (future pressure Q/L).
-- Approve/Reject i expirace jsou přirozené body pro napojení Notification
-  Service (boundary z C01/intent-and-change.md) - zatím nijak neřešeno.
-- SpotLocks (ADR-004) teď musí serializovat i Approve - zůstává v procesu,
-  limit pro víc instancí aplikace trvá.
+Architecture drivers for C03:
+- Expiry is now handled by a lazy re-evaluation whenever the reservation is
+  touched, not by a timer - a reservation nobody touches stays "effectively
+  expired but formally PENDING_APPROVAL" in the DB until something loads it.
+  Needs either a background job or a scheduled query (future pressure Q/L).
+- Approve/Reject and expiry are natural points for connecting the
+  Notification Service (boundary from C01/intent-and-change.md) - not
+  addressed yet.
+- SpotLocks (ADR-004) must now serialize Approve as well - it stays
+  in-process; the limit for multiple application instances remains.
 ```
 
-### OP-03 — Confirm Reservation *(dodatek pro v0.2, viz text výše v sekci 2)*
+### OP-03 — Confirm Reservation *(addendum for v0.2, see the text in section 2)*
 
-Text OP-03 v sekci 2 zůstává platný pro `ParkingSpot.RequiresApproval = false`. Pro `RequiresApproval = true` se REQ-03 mění takto:
+The OP-03 text in section 2 remains valid for `ParkingSpot.RequiresApproval = false`. For `RequiresApproval = true`, REQ-03 changes as follows:
 
 ```
-REQ-03 (v0.2 dodatek):
+REQ-03 (v0.2 addendum):
 If the ParkingSpot has RequiresApproval = true, the system shall instead
 transition a DRAFT Reservation to PENDING_APPROVAL (not CONFIRMED) when
 the ParkingSpot is active and current time < Reservation.start. The
 overlap check against other CONFIRMED Reservations (BR-02) is deferred
 to OP-05 Approve, not performed here.
 
-Verification examples (v0.2 dodatek):
+Verification examples (v0.2 addendum):
 DRAFT on a RequiresApproval spot, active, now < start -> PENDING_APPROVAL
   (even if another CONFIRMED Reservation already overlaps - the conflict
   is caught later, at Approve)
@@ -723,28 +726,28 @@ TBD — whether Notification Service failure affects approve/reject
 (same open question as already noted in OP-03).
 ```
 
-### Kontrola konzistence v0.2
+### Consistency check v0.2
 
-| Kontrola | Stav | Poznámka |
+| Check | Status | Note |
 |---|---|---|
-| Confirm vs. BR-05 | ☑ | OP-03 dodatek přesně odpovídá BR-05: `RequiresApproval = true` jde do `PENDING_APPROVAL`, nikdy přímo do `CONFIRMED`. |
-| Approve vs. stavový diagram (3b) | ☑ | Všechny tři přechody z OP-05 (approve→CONFIRMED, reject→REJECTED, expirace→EXPIRED) jsou v diagramu 3b. |
-| Cancel vs. rozšířené BR-03 | ☑ | OP-04 má nyní v0.2 dodatek, který `PENDING_APPROVAL` i vyloučení `REJECTED`/`EXPIRED` zapisuje přímo do textu operace, ne jen do BR-03. |
-| Use-case diagram vs. OP-05 | ☑ | Aktér Approver a cíl "Approve / Reject Reservation" (3a) odpovídá OP-05. |
-| Nejistota vs. vymyšlená přesnost (approval window) | ☑ | Přesná délka okna je explicitně TBD v OP-05, kód používá jen placeholder - žádná vymyšlená "oficiální" hodnota se netváří jako rozhodnutí. |
+| Confirm vs. BR-05 | ☑ | The OP-03 addendum matches BR-05 exactly: `RequiresApproval = true` goes to `PENDING_APPROVAL`, never directly to `CONFIRMED`. |
+| Approve vs. state diagram (3b) | ☑ | All three transitions of OP-05 (approve→CONFIRMED, reject→REJECTED, expiry→EXPIRED) are in diagram 3b. |
+| Cancel vs. extended BR-03 | ☑ | OP-04 now has a v0.2 addendum that writes `PENDING_APPROVAL` and the exclusion of `REJECTED`/`EXPIRED` directly into the operation text, not only into BR-03. |
+| Use case diagram vs. OP-05 | ☑ | The Approver actor and the goal "Approve / Reject Reservation" (3a) match OP-05. |
+| Uncertainty vs. invented precision (approval window) | ☑ | The exact window length is explicitly TBD in OP-05; the code uses only a placeholder — no invented "official" value pretends to be a decision. |
 
-**Schváleno jako Specification Baseline v0.2:** ☑ ano / datum: 25.10.2026 / kým: tým projektu
+**Approved as Specification Baseline v0.2:** ☑ yes / date: 25 Oct 2026 / by: the project team
 
 ---
 
-## 6. Baseline v0.2.1 — stav místa, check-in/check-out a autorizace
+## 6. Baseline v0.2.1 — spot state, check-in/check-out and authorization
 
-**Důvod revize:** interní audit 27.11.2026 (`docs/evidence-and-evolution.md`, sekce *C07 — Interní audit*) našel funkce implementované v `eaae325` bez specifikace (správa míst, OUT_OF_SERVICE, check-in/out) a pět defektů, které z toho plynuly: rezervovatelné místo mimo provoz, dvě rozdílná pravidla dostupnosti, globální stav místa, zamčené místo po zamítnutí a check-in bez časového okna. v0.2.1 chování doplňuje do specifikace a opravuje. OP-01 až OP-05 se nemění kromě odkazů na BR-06 a BR-07.
+**Reason for the revision:** the internal audit of 27 Nov 2026 (`docs/evidence-and-evolution.md`, section *C07 — Internal audit*) found functionality implemented in `eaae325` without a specification (spot management, OUT_OF_SERVICE, check-in/out) and five resulting defects: a reservable out-of-service spot, two different availability rules, a global spot state, a spot locked after rejection, and check-in without a time window. v0.2.1 adds this behavior to the specification and corrects it. OP-01 to OP-05 do not change except for references to BR-06 and BR-07.
 
-### OP-02 — Check Availability *(dodatek v0.2.1)*
+### OP-02 — Check Availability *(addendum v0.2.1)*
 
 ```
-REQ-02 (v0.2.1 dodatek):
+REQ-02 (v0.2.1 addendum):
 "Not active" in REQ-02 means OUT_OF_SERVICE (BR-06). Additionally, a spot
 that is physically OCCUPIED is unavailable for an interval that contains
 the current time (BR-07). The per-spot query (OP-02) and the per-area
@@ -762,7 +765,7 @@ COMPLETED reservation (checked out) → does not block its remaining interval
 
 ```
 Goal / user value:
-Approver (správce parkoviště) maintains the parking areas and spots that
+Approver (parking manager) maintains the parking areas and spots that
 drivers can reserve, and takes broken spots out of service.
 
 Trigger:
@@ -887,7 +890,7 @@ Overstay after end is not modelled: the spot stays OCCUPIED until
 check-out.
 ```
 
-### Stavový diagram ParkingSpot — v0.2.1
+### ParkingSpot state diagram — v0.2.1
 
 ```mermaid
 stateDiagram-v2
@@ -898,17 +901,17 @@ stateDiagram-v2
     OUT_OF_SERVICE --> FREE: restore (OP-06)
 ```
 
-`RESERVED` není uložený stav: availability oblasti ho hlásí pro interval, který překrývá `CONFIRMED` rezervace (BR-07).
+`RESERVED` is not a stored state: area availability reports it for an interval overlapped by a `CONFIRMED` reservation (BR-07).
 
-### Kontrola konzistence v0.2.1
+### Consistency check v0.2.1
 
-| Kontrola | Stav | Poznámka |
+| Check | Status | Note |
 |---|---|---|
 | OP-02 vs. availability oblasti | ☑ | Jedna metoda `IsSpotAvailableAsync`, test `Spot_and_area_availability_agree_and_area_reports_reserved`. |
-| BR-06 vs. OP-03/OP-05 | ☑ | Confirm/Approve odmítnou `OUT_OF_SERVICE`, stav místa nemění; test `Out_of_service_spot_is_unavailable_and_cannot_be_confirmed`. |
-| BR-07 vs. Cancel (BR-03) | ☑ | Cancel jen před `start`, check-in až od `start` → nepotkají se. |
-| Stavový diagram Reservation vs. OP-07 | ☑ | Přidán přechod `CONFIRMED → COMPLETED`, `COMPLETED` je terminální i pro Cancel. |
-| Autorizace vs. kód | ☑ | Sekce 0 odpovídá `IsReservationOwnerDriverAsync` / `IsActiveApproverAsync` v `ReservationService`. |
+| BR-06 vs. OP-03/OP-05 | ☑ | Confirm/Approve reject `OUT_OF_SERVICE` and do not change the spot state; test `Out_of_service_spot_is_unavailable_and_cannot_be_confirmed`. |
+| BR-07 vs. Cancel (BR-03) | ☑ | Cancel only before `start`, check-in only from `start` → they never meet. |
+| Reservation state diagram vs. OP-07 | ☑ | Added transition `CONFIRMED → COMPLETED`; `COMPLETED` is terminal for Cancel as well. |
+| Authorization vs. code | ☑ | Section 0 matches `IsReservationOwnerDriverAsync` / `IsActiveApproverAsync` in `ReservationService`. |
 
-**Revize v0.2.1:** připravil Jan Ječmínek 27.11.2026, review v PR `fix/spot-state-audit` (reviewer doplní jméno při schválení PR).
+**Revision v0.2.1:** prepared by Jan Ječmínek on 27 Nov 2026, reviewed in PR `fix/spot-state-audit` (the reviewer adds their name when approving the PR).
 

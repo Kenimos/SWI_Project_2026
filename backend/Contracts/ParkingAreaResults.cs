@@ -26,10 +26,10 @@ public enum ParkingSpotOperationError
     NotFound,
     InvalidState,
 
-    /// <summary>OP-07: check-in mimo okno rezervace [start, end).</summary>
+    /// <summary>OP-07: check-in outside the reservation window [start, end).</summary>
     OutsideReservationWindow,
 
-    /// <summary>OP-07: místo je mimo provoz nebo fyzicky obsazené jiným vozidlem.</summary>
+    /// <summary>OP-07: the spot is out of service or physically occupied by another vehicle.</summary>
     SpotUnavailable
 }
 

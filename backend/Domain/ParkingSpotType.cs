@@ -1,6 +1,6 @@
 namespace ParkingReservation.Api.Domain;
 
-/// <summary>Typ parkovacího místa (viz docs/intent-and-change.md).</summary>
+/// <summary>Parking spot type (see docs/intent-and-change.md).</summary>
 public enum ParkingSpotType
 {
     Standard,

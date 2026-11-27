@@ -1,147 +1,148 @@
 # Parking Reservation System
 
-Systém pro rezervaci parkovacích míst — umožňuje uživatelům vyhledat volné parkovací místo v rámci parkovací oblasti, zarezervovat jej na časové okno, rezervaci potvrdit/zrušit a sledovat jeho aktuální stav (volné, rezervované, obsazené).
+A system for reserving parking spots. Users find a free parking spot within a parking area, reserve it for a time window, confirm or cancel the reservation, and track the spot's current state (free, reserved, occupied).
 
 ---
 
-## 1. Doména
+## 1. Domain
 
-### Resource — co se rezervuje
-Rezervovaným zdrojem je **parkovací místo** (`ParkingSpot`), které je vždy součástí konkrétní **parkovací oblasti** (`ParkingArea`) — např. patro garáže, sekce venkovního parkoviště nebo pouliční zóna.
+### Resource — what is reserved
+The reserved resource is a **parking spot** (`ParkingSpot`), which always belongs to one **parking area** (`ParkingArea`), e.g. a garage floor, a section of an open lot, or a street zone.
 
-### Parkovací oblasti (`ParkingArea`)
-| Atribut | Popis |
+### Parking areas (`ParkingArea`)
+| Attribute | Description |
 |---|---|
-| `id`, `name` | identifikace oblasti |
-| `address` | adresa (volitelná, text) |
+| `id`, `name` | identification of the area |
+| `address` | address (optional, free text) |
 | `type` | `GARAGE`, `OPEN_LOT`, `STREET_ZONE`, `PARK_AND_RIDE` |
-| `openingHours` | provozní doba jako volný text (zatím se nevyhodnocuje) |
-| `pricingPolicy` | tarif jako volný text (ceník/platba není v rozsahu) |
+| `openingHours` | opening hours as free text (not evaluated yet) |
+| `pricingPolicy` | pricing as free text (pricing/payment is out of scope) |
 
-Místa oblasti jsou dostupná přes `ParkingSpot.areaId`. Dostupnost oblasti se vždy **odvozuje** z jejích jednotlivých míst (`GET /parking-areas/{id}/availability`), nikdy se nezadává ručně.
+The spots of an area are linked through `ParkingSpot.areaId`. Area availability is always **derived** from its individual spots (`GET /parking-areas/{id}/availability`), never entered manually.
 
-### Parkovací místa (`ParkingSpot`)
-| Atribut | Popis |
+### Parking spots (`ParkingSpot`)
+| Attribute | Description |
 |---|---|
-| `id` | číselná identifikace místa (patro/řada/číslo zatím nejsou modelované) |
-| `areaId` | vazba na parkovací oblast |
+| `id` | numeric spot identifier (floor/row/number are not modelled yet) |
+| `areaId` | link to the parking area |
 | `type` | `STANDARD`, `COMPACT`, `DISABLED`, `EV_CHARGING`, `MOTORCYCLE` |
-| `state` | uložený fyzický/provozní stav místa (viz níže) |
-| `requiresApproval` | *(v0.2)* rezervace musí schválit Approver (OP-05); zatím se nastavuje jen v DB |
+| `state` | stored physical/operational state of the spot (see below) |
+| `requiresApproval` | *(v0.2)* reservations must be approved by an Approver (OP-05); currently set only in the database |
 
-**Stavy parkovacího místa:**
+**Parking spot states:**
 
-| Stav | Popis |
+| State | Description |
 |---|---|
-| `FREE` | místo je v provozu a fyzicky volné |
-| `OCCUPIED` | na místě fyzicky stojí vozidlo (po check-inu konkrétní rezervace) |
-| `OUT_OF_SERVICE` | místo je administrativně blokováno (porucha, údržba) |
-| `RESERVED` | **neukládá se**, je to odvozený pohled: v dotazovaném intervalu místo blokuje `CONFIRMED` rezervace |
+| `FREE` | the spot is in service and physically free |
+| `OCCUPIED` | a vehicle is physically parked on the spot (after check-in of a specific reservation) |
+| `OUT_OF_SERVICE` | the spot is administratively blocked (failure, maintenance) |
+| `RESERVED` | **not stored**; a derived view: a `CONFIRMED` reservation blocks the spot in the queried interval |
 
-Přechody (BR-06, BR-07): `FREE → OCCUPIED` check-in v okně rezervace `[start, end)`, `OCCUPIED → FREE` check-out, `FREE ⇄ OUT_OF_SERVICE` správce. Místo `OUT_OF_SERVICE` se nikdy nenabízí jako dostupné a nejde na něm potvrdit rezervaci. Confirm, Approve ani Cancel stav místa nemění, protože dostupnost se počítá z rezervací v čase.
+Transitions (BR-06, BR-07): `FREE → OCCUPIED` check-in within the reservation window `[start, end)`, `OCCUPIED → FREE` check-out, `FREE ⇄ OUT_OF_SERVICE` by the Approver. An `OUT_OF_SERVICE` spot is never offered as available and no reservation on it can be confirmed. Confirm, Approve and Cancel do not change the spot state, because availability is computed from reservations over time.
 
-### Reservation — rezervace
-| Atribut | Popis |
+### Reservation
+| Attribute | Description |
 |---|---|
-| `id` | identita rezervace |
-| `spotId` | rezervované parkovací místo |
-| `userId` | uživatel, který rezervaci vytvořil |
-| `startTime`, `endTime` | rezervovaný časový slot |
-| `state` | stav rezervace (viz níže) |
+| `id` | reservation identity |
+| `spotId` | reserved parking spot |
+| `userId` | user who created the reservation |
+| `startTime`, `endTime` | reserved time slot |
+| `state` | reservation state (see below) |
 
-**Stavy rezervace:**
+**Reservation states:**
 
-| Stav | Popis |
+| State | Description |
 |---|---|
-| `DRAFT` | rezervace vytvořena, ještě nepotvrzena |
-| `CONFIRMED` | rezervace potvrzena, místo je pro dané okno vyhrazeno |
-| `CANCELLED` | rezervace zrušena uživatelem nebo systémem |
-| `PENDING_APPROVAL` | *(v0.2)* místo vyžaduje schválení, rezervace čeká na rozhodnutí Approvera |
-| `REJECTED` | *(v0.2)* Approver žádost zamítl (terminální stav) |
-| `EXPIRED` | *(v0.2)* schvalovací okno vypršelo bez rozhodnutí (terminální stav) |
-| `COMPLETED` | *(v0.2.1)* po check-outu; rezervace už místo neblokuje (terminální stav) |
+| `DRAFT` | reservation created, not confirmed yet |
+| `CONFIRMED` | reservation confirmed, the spot is allocated for the window |
+| `CANCELLED` | reservation cancelled by the user or the system |
+| `PENDING_APPROVAL` | *(v0.2)* the spot requires approval; the reservation waits for the Approver's decision |
+| `REJECTED` | *(v0.2)* the Approver rejected the request (terminal state) |
+| `EXPIRED` | *(v0.2)* the approval window elapsed without a decision (terminal state) |
+| `COMPLETED` | *(v0.2.1)* after check-out; the reservation no longer blocks the spot (terminal state) |
 
-Stavové operace: `DRAFT → CONFIRMED` (potvrzení), u míst s `RequiresApproval` `DRAFT → PENDING_APPROVAL → CONFIRMED / REJECTED / EXPIRED` (OP-05), `→ CANCELLED` (OP-04) a `CONFIRMED → COMPLETED` (check-out, OP-07). Úplný stavový diagram je v [docs/specification.md](docs/specification.md) (3b).
+State operations: `DRAFT → CONFIRMED` (confirmation), for spots with `RequiresApproval` `DRAFT → PENDING_APPROVAL → CONFIRMED / REJECTED / EXPIRED` (OP-05), `→ CANCELLED` (OP-04) and `CONFIRMED → COMPLETED` (check-out, OP-07). The full state diagram is in [docs/specification.md](docs/specification.md) (3b).
 
-### User — uživatel
-Osoba, která vytváří a spravuje rezervace parkovacích míst. Role: **řidič** (`Driver`, vytváří rezervace a jen své rezervace potvrzuje/ruší) a **správce parkoviště** (`Approver`, schvaluje, spravuje oblasti a místa, provádí check-in/out). Pravidla autorizace jsou v [docs/specification.md](docs/specification.md), sekce 0.
+### User
+A person who creates and manages parking reservations. Roles: **driver** (`Driver`, creates reservations and confirms/cancels only their own) and **parking manager** (`Approver`, approves requests, manages areas and spots, performs check-in/out). Authorization rules are in [docs/specification.md](docs/specification.md), section 0.
 
 ---
 
-## 2. Core operace
+## 2. Core operations
 
-- **Create reservation** — vytvoření rezervace na volné místo a časové okno.
-- **Confirm reservation** — potvrzení rezervace (`DRAFT → CONFIRMED`).
-- **Cancel reservation** — zrušení rezervace před jejím začátkem (`→ CANCELLED`).
-- **Check availability** — dostupnost jednoho místa nebo všech míst oblasti pro daný časový interval.
-- **Manage parking areas/spots** — Approver vytváří oblasti a místa a spravuje jejich provozní stav.
-- **Check-in / check-out** — Approver zaznamená příjezd a odjezd vozidla u potvrzené rezervace.
+- **Create reservation** — create a reservation for a spot and a time window.
+- **Confirm reservation** — confirm a reservation (`DRAFT → CONFIRMED`).
+- **Cancel reservation** — cancel a reservation before it starts (`→ CANCELLED`).
+- **Check availability** — availability of one spot or of all spots in an area for a time interval.
+- **Manage parking areas/spots** — the Approver creates areas and spots and manages their operational state.
+- **Check-in / check-out** — the Approver records the arrival and departure of the vehicle for a confirmed reservation.
 
 ---
 
-## 3. Business pravidla
+## 3. Business rules
 
 ### Common rule
-Dvě potvrzené (`CONFIRMED`) rezervace téhož parkovacího místa se nesmí časově překrývat.
+Two confirmed (`CONFIRMED`) reservations of the same parking spot must not overlap in time.
 
 ### Domain-specific rule
-Rezervaci místa typu `EV_CHARGING` nebo `DISABLED` smí vytvořit pouze uživatel, jehož vozidlo odpovídající typ/oprávnění skutečně má (elektromobil, ZTP průkaz) — kontroluje se při vytváření rezervace.
+A reservation of an `EV_CHARGING` or `DISABLED` spot may be created only by a user whose vehicle actually has the matching type/permit (electric vehicle, disabled parking permit). It is checked when the reservation is created.
 
 ---
 
 ## 4. External / system boundary
 
-**Notification Service** — externí závislost, která uživatele informuje o potvrzení, blížícím se konci rezervace nebo jejím zrušení (e-mail / push notifikace).
+**Notification Service** — an external dependency that informs users about a confirmation, the upcoming end of a reservation, or its cancellation (e-mail / push notification).
 
 ---
 
 ## 5. CP1 walking skeleton
 
-Minimální end-to-end tok, který má být reálně spustitelný:
+The minimal end-to-end flow that must actually run:
 
 ```
 POST /reservations
-  → validate (existence místa, platnost intervalu, oprávnění k typu místa)
-  → persist (uložení rezervace do databáze ve stavu DRAFT)
+  → validate (spot exists, interval is valid, user is eligible for the spot type)
+  → persist (store the reservation in the database in state DRAFT)
   → return reservation ID
-  → automated check (ověření, že rezervace je čitelná zpět z databáze se správným stavem)
+  → automated check (verify that the reservation can be read back from the database with the correct state)
 ```
 
 ---
 
-## 6. Struktura repozitáře
+## 6. Repository structure
 
 ```
 backend/    ASP.NET Core Web API (.NET 8, EF Core, SQLite)
-  Domain/       entity a enumy (Reservation, ReservationState, ParkingSpot, ParkingSpotType)
-  Contracts/    DTOs a výsledky operací (request/response)
-  Services/     ReservationService (OP-01..OP-05), IClock, SpotLocks
+  Domain/       entities and enums (Reservation, ParkingSpot, ParkingArea, User and their states/types)
+  Contracts/    DTOs and operation results (request/response)
+  Services/     ReservationService (OP-01..OP-07), IClock, SpotLocks
   Data/         ParkingDbContext
-  Migrations/   EF Core migrace
-tests/      xUnit testy (ParkingReservation.Api.Tests)
-frontend/   zatím prázdné — frontend se zatím neřeší
+  Migrations/   EF Core migrations
+tests/      xUnit tests (ParkingReservation.Api.Tests)
+frontend/   empty for now — the frontend is not addressed yet
+scripts/    check-architecture-conformance.sh
 docs/
-  intent-and-change.md          Project Frame + Selected future pressure (C01)
-  architecture-and-decisions.md architektonická rozhodnutí (ADR)
-  evidence-and-evolution.md     evidence a rozhodnutí z engineering spike
-  specification.md              OP-01..OP-07, BR-01..BR-07, diagramy, baseline v0.1/v0.2/v0.2.1
-  REPORT.md                     C06 assessment od jiného týmu + naše disposition
+  intent-and-change.md          Project Frame, selected future pressure (C01), C08 Change Card
+  architecture-and-decisions.md architecture decisions (ADR), C03 and C05 design
+  evidence-and-evolution.md     spike, verification, audit and test-case evidence
+  specification.md              OP-01..OP-07, BR-01..BR-07, diagrams, baselines v0.1/v0.2/v0.2.1
+  REPORT.md                     C06 assessment by another team + our disposition
 ```
 
-Backend implementuje operace podle [docs/specification.md](docs/specification.md): Baseline v0.1 (OP-01 Create, OP-02 Check Availability, OP-03 Confirm, OP-04 Cancel), Baseline v0.2 (OP-05 Approve/Reject, stavy `PENDING_APPROVAL`/`REJECTED`/`EXPIRED` pro `ParkingSpot.RequiresApproval = true`) a Baseline v0.2.1 (OP-06 správa oblastí a míst, OP-07 check-in/check-out).
+The backend implements the operations of [docs/specification.md](docs/specification.md): Baseline v0.1 (OP-01 Create, OP-02 Check Availability, OP-03 Confirm, OP-04 Cancel), Baseline v0.2 (OP-05 Approve/Reject, states `PENDING_APPROVAL`/`REJECTED`/`EXPIRED` for `ParkingSpot.RequiresApproval = true`) and Baseline v0.2.1 (OP-06 managing areas and spots, OP-07 check-in/check-out).
 
-## 7. Backend — jak spustit
+## 7. Backend — how to run
 
-### Požadavky
+### Requirements
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
-- [`dotnet-ef`](https://learn.microsoft.com/ef/core/cli/dotnet) globální nástroj (pro migrace a `dotnet ef database update`): `dotnet tool install --global dotnet-ef`
+- the [`dotnet-ef`](https://learn.microsoft.com/ef/core/cli/dotnet) global tool (for migrations and `dotnet ef database update`): `dotnet tool install --global dotnet-ef`
 
-### Použitý stack
+### Stack
 - ASP.NET Core Web API (.NET 8)
-- Entity Framework Core + `Microsoft.EntityFrameworkCore.Sqlite` (databáze SQLite, soubor `parking.db`)
+- Entity Framework Core + `Microsoft.EntityFrameworkCore.Sqlite` (SQLite database, file `parking.db`)
 - Swagger / OpenAPI (`Microsoft.AspNetCore.OpenApi`, `Swashbuckle.AspNetCore`)
 
-### Spuštění
+### Run
 
 ```bash
 cd backend
@@ -149,31 +150,31 @@ dotnet restore
 dotnet run
 ```
 
-Po spuštění je API dostupné na adrese vypsané v konzoli (např. `http://localhost:5xxx`), Swagger UI na `/swagger` (v Development prostředí).
+After start-up the API is available at the address printed in the console (e.g. `http://localhost:5xxx`), with Swagger UI at `/swagger` (in the Development environment).
 
-Connection string na SQLite databázi je v `backend/appsettings.json` pod klíčem `ConnectionStrings:DefaultConnection` (`Data Source=parking.db`).
+The SQLite connection string is in `backend/appsettings.json` under `ConnectionStrings:DefaultConnection` (`Data Source=parking.db`).
 
-### Databáze a migrace
+### Database and migrations
 
-Databázový soubor `parking.db` se vytvoří příkazem (spouští se z `backend/`):
+The database file `parking.db` is created with (run from `backend/`):
 
 ```bash
 cd backend
 dotnet ef database update
 ```
 
-Jinou databázi (např. izolovanou testovací) jde zvolit stejnou proměnnou, jakou používá aplikace:
+A different database (e.g. an isolated test one) can be selected with the same variable the application uses:
 
 ```bash
 cd backend
 ConnectionStrings__DefaultConnection="Data Source=/tmp/test.db" dotnet ef database update
 ```
 
-Po změně entit se přidá nová migrace (`Migrations/` se commituje, `parking.db` ne):
+After changing entities, add a new migration (`Migrations/` is committed, `parking.db` is not):
 
 ```bash
 cd backend
-dotnet ef migrations add NazevMigrace
+dotnet ef migrations add MigrationName
 dotnet ef database update
 ```
 
@@ -184,24 +185,24 @@ dotnet build backend
 dotnet test tests/ParkingReservation.Api.Tests
 ```
 
-Testy si samy vytvoří dočasnou SQLite databázi přes migrace, takže nepotřebují předchozí `dotnet ef database update`.
+The tests create their own temporary SQLite database through migrations, so they do not need a prior `dotnet ef database update`.
 
-### Vyzkoušení endpointů
+### Trying the endpoints
 
-API spouštěj na pevném portu, aby seděly příklady níže (výchozí launch profile používá jiný port):
+Run the API on a fixed port so that the examples below match (the default launch profile uses a different port):
 
 ```bash
 cd backend
 dotnet run --urls http://localhost:5299
 ```
 
-Uživatelé zatím nemají endpoint, takže se po `dotnet ef database update` založí ručně: řidič `1` (`Driver`) a správce `9` (`Approver`). Oblast a místo pak založí správce přes API. Enumy se v JSON posílají i vrací jako text (`type` oblasti: `Garage`, `OpenLot`, `StreetZone`, `ParkAndRide`; `type` místa: `Standard`, `Compact`, `Disabled`, `EvCharging`, `Motorcycle`), číselná hodnota se také přijme. Časy posílej v UTC (`...Z`):
+Users have no endpoint yet, so after `dotnet ef database update` create them manually: driver `1` (`Driver`) and manager `9` (`Approver`). The manager then creates an area and a spot through the API. Enums are sent and returned in JSON as text (area `type`: `Garage`, `OpenLot`, `StreetZone`, `ParkAndRide`; spot `type`: `Standard`, `Compact`, `Disabled`, `EvCharging`, `Motorcycle`); a numeric value is accepted too. Send times in UTC (`...Z`):
 
 ```bash
 sqlite3 backend/parking.db "INSERT INTO Users (Id, Role, IsActive) VALUES (1, 'Driver', 1), (9, 'Approver', 1);"
 
 curl -X POST http://localhost:5299/parking-areas -H "Content-Type: application/json" \
-  -d '{"approverUserId":9,"name":"Garaz A","type":"Garage"}'
+  -d '{"approverUserId":9,"name":"Garage A","type":"Garage"}'
 # -> {"id":1}
 
 curl -X POST http://localhost:5299/parking-areas/1/spots -H "Content-Type: application/json" \
@@ -209,7 +210,7 @@ curl -X POST http://localhost:5299/parking-areas/1/spots -H "Content-Type: appli
 # -> {"id":1,"state":"Free"}
 ```
 
-**OP-01 Create + OP-02 Check Availability + OP-03 Confirm (bez schvalování) + OP-04 Cancel:**
+**OP-01 Create + OP-02 Check Availability + OP-03 Confirm (without approval) + OP-04 Cancel:**
 
 ```bash
 curl -X POST http://localhost:5299/reservations \
@@ -223,12 +224,12 @@ curl -X POST http://localhost:5299/reservations/1/confirm -H "Content-Type: appl
 curl -X POST http://localhost:5299/reservations/1/cancel -H "Content-Type: application/json" -d '{"userId":1}'
 ```
 
-**OP-05 Approve/Reject (`ParkingSpot.RequiresApproval = 1`):** Confirm nevede přímo do `Confirmed`, ale do `PendingApproval`; teprve Approve/Reject rozhodne.
+**OP-05 Approve/Reject (`ParkingSpot.RequiresApproval = 1`):** Confirm does not lead directly to `Confirmed` but to `PendingApproval`; Approve/Reject then decides.
 
 ```bash
 curl -X POST http://localhost:5299/parking-areas/1/spots -H "Content-Type: application/json" \
   -d '{"approverUserId":9,"type":"Standard"}'
-# RequiresApproval zatím nejde nastavit přes API:
+# RequiresApproval cannot be set through the API yet:
 sqlite3 backend/parking.db "UPDATE ParkingSpots SET RequiresApproval = 1 WHERE Id = 2;"
 
 curl -X POST http://localhost:5299/reservations -H "Content-Type: application/json" \
@@ -239,57 +240,57 @@ curl -X POST http://localhost:5299/reservations/2/confirm -H "Content-Type: appl
 
 curl -X POST http://localhost:5299/reservations/2/approve -H "Content-Type: application/json" -d '{"approverUserId":9}'
 # -> {"id":2,"state":"Confirmed"}
-# alternativně: curl -X POST http://localhost:5299/reservations/2/reject -H "Content-Type: application/json" -d '{"approverUserId":9}'
+# alternatively: curl -X POST http://localhost:5299/reservations/2/reject -H "Content-Type: application/json" -d '{"approverUserId":9}'
 ```
 
-**OP-06 mimo provoz / obnova a OP-07 check-in / check-out:**
+**OP-06 out of service / restore and OP-07 check-in / check-out:**
 
 ```bash
 curl -X POST http://localhost:5299/parking-spots/1/out-of-service -H "Content-Type: application/json" -d '{"approverUserId":9}'
-# -> {"id":1,"state":"OutOfService"}; availability místa je teď false a Confirm vrací spot_inactive
+# -> {"id":1,"state":"OutOfService"}; spot availability is now false and Confirm returns spot_inactive
 curl -X POST http://localhost:5299/parking-spots/1/restore -H "Content-Type: application/json" -d '{"approverUserId":9}'
 
-# Check-in jde jen v okně rezervace [start, end) podle serverových hodin (UTC),
-# u rezervace v roce 2030 tedy vrátí outside_reservation_window.
+# Check-in is possible only within the reservation window [start, end) by the server clock (UTC),
+# so for a reservation in 2030 it returns outside_reservation_window.
 curl -X POST http://localhost:5299/reservations/2/check-in -H "Content-Type: application/json" -d '{"approverUserId":9}'
 curl -X POST http://localhost:5299/reservations/2/check-out -H "Content-Type: application/json" -d '{"approverUserId":9}'
 ```
 
 ## 8. Frontend
 
-Frontend zatím není řešen — složka `frontend/` je připravena jako placeholder, technologie a spuštění doplníme, až se tým shodne.
+The frontend is not addressed yet. The `frontend/` folder is a placeholder; technology and run instructions will be added once the team agrees.
 
 ---
 
-## 9. Definition of Done před C02
+## 9. Definition of Done before C02
 
-- [x] tým 3–4 členové *(3 členi)*
-- [x] společný repo
-- [x] jasný reservation domain
+- [x] team of 3–4 members *(3 members)*
+- [x] shared repository
+- [x] clear reservation domain
 - [x] Resource + Reservation + User
 - [x] meaningful Reservation states
-- [x] create + confirm/approve + cancel + availability *(implementováno v backendu a ověřeno testy)*
-- [x] common overlap rule *(implementováno a ověřeno v Confirm/Availability testech)*
-- [x] 1 domain-specific business rule *(definováno v Project Frame)*
-- [x] 1 external/system boundary *(definováno v Project Frame — Notification Service)*
-- [x] kompletní Project Frame *(`docs/intent-and-change.md`)*
-- [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, kategorie Q)*
-- [x] 1 reviewed and integrated change *(PR #3 `C04_and_others`, review a merge Robin Tokarský, merge commit `39b934a`)*
-- [x] 1 executed engineering spike *(varianta A — Persistence, issue #1)*
+- [x] create + confirm/approve + cancel + availability *(implemented in the backend and verified by tests)*
+- [x] common overlap rule *(implemented and verified in the Confirm/Availability tests)*
+- [x] 1 domain-specific business rule *(defined in the Project Frame)*
+- [x] 1 external/system boundary *(defined in the Project Frame — Notification Service)*
+- [x] complete Project Frame *(`docs/intent-and-change.md`)*
+- [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, category Q)*
+- [x] 1 reviewed and integrated change *(PR #3 `C04_and_others`, reviewed and merged by Robin Tokarský, merge commit `39b934a`)*
+- [x] 1 executed engineering spike *(variant A — Persistence, issue #1)*
 - [x] spike evidence + decision *(`docs/evidence-and-evolution.md`)*
-- [x] definovaný CP1 walking skeleton
+- [x] defined CP1 walking skeleton
 
-### Co je hotové
+### What is done
 
-- **Tým a repo** — 3 členi, sdílený repozitář existuje a jde do něj commitovat.
-- **Doména** — reservation domain (parkovací místo/oblast), entity Resource/Reservation/User a stavy jsou popsané v README (sekce 1) i formálně v [`docs/intent-and-change.md`](docs/intent-and-change.md).
-- **Project Frame** — kompletně vyplněný v [`docs/intent-and-change.md`](docs/intent-and-change.md) včetně common rule, domain-specific rule, boundary, assumption, unknown.
-- **Future pressure** — vybrána kategorie Q (Quality/Scale) a zdůvodněna v [`docs/intent-and-change.md`](docs/intent-and-change.md).
-- **CP1 walking skeleton** — end-to-end backend tok je implementovaný přes OP-01 až OP-05 a ověřený testy.
-- **Backend** — ASP.NET Core Web API projekt ve `backend/` s EF Core + SQLite, `ParkingDbContext`, rezervacemi, parkovacími místy a endpointy OP-01 až OP-05.
-- **Engineering spike A (Persistence)** — `Reservation` se ukládá do SQLite přes EF Core, načítá zpět a ověřuje testy; evidence a rozhodnutí jsou v [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md).
-- **`docs/` složka** — obsahuje Project Frame, specifikaci, architekturu, evidenci a projektovou prezentaci.
+- **Team and repository** — 3 members; a shared repository exists and everyone can commit to it.
+- **Domain** — the reservation domain (parking spot/area), the Resource/Reservation/User entities and their states are described in the README (section 1) and formally in [`docs/intent-and-change.md`](docs/intent-and-change.md).
+- **Project Frame** — fully completed in [`docs/intent-and-change.md`](docs/intent-and-change.md), including the common rule, domain-specific rule, boundary, assumption and unknown.
+- **Future pressure** — category Q (Quality/Scale) selected and justified in [`docs/intent-and-change.md`](docs/intent-and-change.md).
+- **CP1 walking skeleton** — the end-to-end backend flow is implemented through OP-01 to OP-07 and verified by tests.
+- **Backend** — an ASP.NET Core Web API project in `backend/` with EF Core + SQLite, `ParkingDbContext`, reservations, parking areas and spots, and endpoints for OP-01 to OP-07.
+- **Engineering spike A (Persistence)** — `Reservation` is stored in SQLite through EF Core, read back and verified by tests; evidence and decision are in [`docs/evidence-and-evolution.md`](docs/evidence-and-evolution.md).
+- **`docs/` folder** — contains the Project Frame, specification, architecture, evidence and the project presentation.
 
-### Co ještě chybí
+### What is still missing
 
-- **Produkční autorizace a škálování** — lokální User/Role kontrola je implementovaná, ale externí identity a multi-instance databázová ochrana ještě nejsou součástí řešení.
+- **Production authorization and scaling** — local User/Role checks are implemented, but external identity and multi-instance database protection are not part of the solution yet.

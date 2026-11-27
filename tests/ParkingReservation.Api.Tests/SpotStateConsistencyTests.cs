@@ -9,8 +9,8 @@ using ParkingReservation.Api.Services;
 namespace ParkingReservation.Api.Tests;
 
 /// <summary>
-/// Regresní testy k internímu auditu stavu místa (spec v0.2.1, BR-06 a BR-07, OP-06 a OP-07).
-/// Každý test odpovídá jednomu defektu nalezenému na commitu 8a5b312.
+/// Regression tests for the internal audit of the spot state (spec v0.2.1, BR-06 and BR-07, OP-06 and OP-07).
+/// Each test corresponds to one defect found on commit 8a5b312.
 /// </summary>
 public class SpotStateConsistencyTests : IDisposable
 {
@@ -71,7 +71,7 @@ public class SpotStateConsistencyTests : IDisposable
         return await read.Reservations.AsNoTracking().SingleAsync(r => r.Id == reservationId);
     }
 
-    [Fact] // BR-06: OUT_OF_SERVICE == neaktivní (dříve se dalo rezervovat a Confirm přepsal stav)
+    [Fact] // BR-06: OUT_OF_SERVICE == inactive (previously it could be reserved and Confirm overwrote the state)
     public async Task Out_of_service_spot_is_unavailable_and_cannot_be_confirmed()
     {
         var spotId = await NewSpotAsync();
@@ -88,7 +88,7 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.True((await _service.RestoreSpotAsync(spotId, 9)).Success);
     }
 
-    [Fact] // REQ-02: OP-02 a availability oblasti používají stejné pravidlo
+    [Fact] // REQ-02: OP-02 and area availability use the same rule
     public async Task Spot_and_area_availability_agree_and_area_reports_reserved()
     {
         var freeSpot = await NewSpotAsync();
@@ -109,7 +109,7 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.Contains(area.Spots, s => s.SpotId == outOfServiceSpot && !s.Available && s.State == ParkingSpotState.OutOfService);
     }
 
-    [Fact] // BR-07: zrušení jedné rezervace nesmí rozbít check-in jiné potvrzené rezervace místa
+    [Fact] // BR-07: cancelling one reservation must not break check-in of another confirmed reservation of the spot
     public async Task Cancelling_one_reservation_keeps_check_in_of_another_possible()
     {
         var spotId = await NewSpotAsync();
@@ -124,7 +124,7 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.Equal(ParkingSpotState.Occupied, (await ReadSpotAsync(spotId)).State);
     }
 
-    [Fact] // OP-02 v0.2: PENDING_APPROVAL ani REJECTED místo nezamyká
+    [Fact] // OP-02 v0.2: neither PENDING_APPROVAL nor REJECTED locks the spot
     public async Task Pending_and_rejected_reservations_do_not_lock_spot()
     {
         var spotId = await NewSpotAsync(requiresApproval: true);
@@ -138,7 +138,7 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.True(outOfService.Success);
     }
 
-    [Theory] // BR-07: check-in jen v okně [start, end)
+    [Theory] // BR-07: check-in only within the window [start, end)
     [InlineData(-1, false)]
     [InlineData(0, true)]
     [InlineData(59, true)]
@@ -160,7 +160,7 @@ public class SpotStateConsistencyTests : IDisposable
         }
     }
 
-    [Fact] // BR-07: po check-outu rezervace neblokuje zbytek okna; druhý check-in se nepovolí
+    [Fact] // BR-07: after check-out the reservation does not block the rest of the window; a second check-in is not allowed
     public async Task Check_out_completes_reservation_and_releases_rest_of_window()
     {
         var spotId = await NewSpotAsync();
@@ -179,7 +179,7 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.Equal(CancelReservationError.InvalidState, (await _service.CancelReservationAsync(reservationId, 1)).Error);
     }
 
-    [Fact] // Sekce 0: časy s offsetem se ukládají převedené na UTC
+    [Fact] // Section 0: times with an offset are stored converted to UTC
     public async Task Create_normalizes_local_time_to_utc()
     {
         var spotId = await NewSpotAsync();
@@ -192,7 +192,8 @@ public class SpotStateConsistencyTests : IDisposable
         Assert.Equal(localStart.ToUniversalTime(), DateTime.SpecifyKind(stored.StartTime, DateTimeKind.Utc));
     }
 
-    [Fact] // Migrace: IsActive=0 -> OutOfService, Reserved -> Free, platný check-in zachován
+    [Fact] // Migration: IsActive=0 -> OutOfService, Reserved -> Free, valid check-in kept
+
     public async Task Migration_backfills_spot_state_and_check_in()
     {
         var path = Path.Combine(Path.GetTempPath(), $"parking-migration-{Guid.NewGuid():N}.db");

@@ -1,12 +1,12 @@
 namespace ParkingReservation.Api.Contracts;
 
-/// <summary>Request pro OP-01 Create Reservation (docs/specification.md).</summary>
-/// <param name="UserId">Id přihlášeného uživatele. 0/záporné = neautorizováno (zatím bez skutečného auth systému).</param>
-/// <param name="SpotId">Id parkovacího místa, které má být rezervováno.</param>
-/// <param name="Start">Začátek intervalu (UTC).</param>
-/// <param name="End">Konec intervalu (UTC), exkluzivní (BR-01).</param>
-/// <param name="VehicleIsElectric">Vyžadováno pro BR-04 u míst typu EvCharging.</param>
-/// <param name="VehicleHasDisabledPermit">Vyžadováno pro BR-04 u míst typu Disabled.</param>
+/// <summary>Request for OP-01 Create Reservation (docs/specification.md).</summary>
+/// <param name="UserId">Id of the acting user; must be an active Driver (spec section 0, local identity without a real auth system).</param>
+/// <param name="SpotId">Id of the parking spot to reserve.</param>
+/// <param name="Start">Start of the interval (UTC).</param>
+/// <param name="End">End of the interval (UTC), exclusive (BR-01).</param>
+/// <param name="VehicleIsElectric">Required by BR-04 for EvCharging spots.</param>
+/// <param name="VehicleHasDisabledPermit">Required by BR-04 for Disabled spots.</param>
 public record CreateReservationRequest(
     int UserId,
     int SpotId,
