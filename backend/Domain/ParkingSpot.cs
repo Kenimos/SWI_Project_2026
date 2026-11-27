@@ -15,10 +15,34 @@ public class ParkingSpot
 
     public ParkingSpotType Type { get; set; } = ParkingSpotType.Standard;
 
+    /// <summary>
+    /// Uložený provozní/fyzický stav místa (BR-06, BR-07): <c>Free</c>,
+    /// <c>Occupied</c> (po check-inu) nebo <c>OutOfService</c>. <c>Reserved</c>
+    /// se nikdy neukládá - je to odvozený pohled na interval, ve kterém místo
+    /// blokuje CONFIRMED rezervace (viz CheckAreaAvailabilityAsync).
+    /// </summary>
     public ParkingSpotState State { get; set; } = ParkingSpotState.Free;
 
-    /// <summary>Odpovídá precondition "ParkingSpot is active" v OP-03 (Confirm).</summary>
-    public bool IsActive { get; set; } = true;
+    /// <summary>
+    /// Precondition "ParkingSpot is active" z OP-02/OP-03/OP-05. Není to
+    /// samostatný sloupec: místo je aktivní právě tehdy, když není
+    /// OUT_OF_SERVICE (BR-06, jediný zdroj pravdy).
+    /// </summary>
+    public bool IsActive
+    {
+        get => State != ParkingSpotState.OutOfService;
+        set
+        {
+            if (!value)
+            {
+                State = ParkingSpotState.OutOfService;
+            }
+            else if (State == ParkingSpotState.OutOfService)
+            {
+                State = ParkingSpotState.Free;
+            }
+        }
+    }
 
     /// <summary>
     /// v0.2 (BR-05): pokud true, Confirm (OP-03) nevede přímo do CONFIRMED,

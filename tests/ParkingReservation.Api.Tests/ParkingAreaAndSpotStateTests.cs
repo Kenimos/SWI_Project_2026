@@ -131,12 +131,14 @@ public class ParkingAreaAndSpotStateTests : IDisposable
         var created = await _service.CreateReservationAsync(new CreateReservationRequest(
             1, spot.Id, Now.AddHours(1), Now.AddHours(2)));
         var confirmed = await _service.ConfirmReservationAsync(created.ReservationId!.Value, 1);
+        _clock.UtcNow = Now.AddHours(1).AddMinutes(5); // uvnitř okna [start, end) - BR-07
         var checkedIn = await _service.CheckInAsync(created.ReservationId.Value, 9);
         var checkedOut = await _service.CheckOutAsync(created.ReservationId.Value, 9);
 
         Assert.True(confirmed.Success);
         Assert.Equal(ParkingSpotState.Occupied, checkedIn.State);
         Assert.Equal(ParkingSpotState.Free, checkedOut.State);
+        Assert.Equal(ReservationState.Completed, (await _db.Reservations.FindAsync(created.ReservationId))!.State);
     }
 
     [Fact]

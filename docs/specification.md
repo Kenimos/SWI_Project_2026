@@ -1,6 +1,6 @@
 # Parking Reservation System — Specification
 
-Stav: **Baseline v0.2 — schváleno týmem 25.10.2026** (vychází z Baseline v0.1 a schváleného approval workflow).
+Stav: **Baseline v0.2.1 — opravná revize 27.11.2026** (vychází z Baseline v0.2 schválené týmem 25.10.2026; v0.2.1 doplňuje rozhodnutí o autorizaci, stav parkovacího místa, OP-06 a OP-07 — viz sekce 6).
 
 Domain reference: [intent-and-change.md](intent-and-change.md) (Project Frame z C01).
 
@@ -15,7 +15,14 @@ Domain reference: [intent-and-change.md](intent-and-change.md) (Project Frame z 
 **Cancellation policy (BR-03):**
 `DRAFT` nebo `CONFIRMED` rezervaci lze zrušit kdykoliv před `Reservation.start` (porovnává se proti serverovému UTC času). Pokus o zrušení již `CANCELLED` rezervace je idempotentní úspěch (zůstává `CANCELLED`, žádná chyba). Pokud `start` nastal nebo uplynul, Cancel je odmítnut. Pokud se `Cancel` a `Confirm` potkají současně na téže rezervaci, vyhrává ten požadavek, který se zapíše do databáze jako první (řeší se transakcí/optimistickým zámkem v architektuře C03 — zde jen definujeme pozorovatelný výsledek: nejvýše jeden z nich uspěje).
 
-**Časová osa:** veškeré časy (`start`, `end`, `currentTime`) jsou UTC (navazuje na ADR-003 z C01).
+**Časová osa:** veškeré časy (`start`, `end`, `currentTime`) jsou UTC (navazuje na ADR-003 z C01). Čas zaslaný s offsetem se převede na UTC, čas bez zóny se bere jako UTC (v0.2.1).
+
+**Autorizace (rozhodnuto v v0.2.1, nahrazuje dřívější TBD v OP-01, OP-03, OP-04, OP-05):** uživatel má roli `Driver` nebo `Approver` a příznak `IsActive`.
+- Create (OP-01) smí jen aktivní `Driver`.
+- Confirm (OP-03) a Cancel (OP-04) smí jen aktivní `Driver`, který rezervaci vytvořil (vlastník).
+- Approve/Reject (OP-05), správu oblastí a míst (OP-06) a check-in/check-out (OP-07) smí kterýkoli aktivní `Approver`; omezení na konkrétní oblast není v rozsahu.
+- Check Availability (OP-02) je veřejné čtení.
+- Identita je lokální (`userId` v požadavku), externí identity provider je mimo rozsah (ADR-006, riziko v evidence).
 
 ---
 
@@ -37,6 +44,12 @@ Rezervaci `ParkingSpot` typu `EV_CHARGING` nebo `DISABLED` smí vytvořit pouze 
 
 ### BR-05 — Approval gate (v0.2)
 A Reservation on a `ParkingSpot` with `RequiresApproval = true` can reach `CONFIRMED` only via `Approve` (OP-05), never directly via `Confirm` (OP-03). A Reservation on a `ParkingSpot` with `RequiresApproval = false` is unaffected and confirms directly, as in v0.1.
+
+### BR-06 — Spot operability (v0.2.1)
+A `ParkingSpot` is *active* exactly when its state is not `OUT_OF_SERVICE` (one source of truth). An `OUT_OF_SERVICE` spot is never reported as available (OP-02, area availability) and no Reservation on it can be confirmed or approved (OP-03, OP-05). Only an Approver changes it (OP-06): `FREE → OUT_OF_SERVICE` and `OUT_OF_SERVICE → FREE`; a physically occupied spot cannot be taken out of service.
+
+### BR-07 — Physical occupancy (v0.2.1)
+The stored spot state reflects only operation and physical presence: `FREE`, `OCCUPIED`, `OUT_OF_SERVICE`. `RESERVED` is never stored; it is a derived view meaning “a `CONFIRMED` Reservation overlaps the queried interval”. Occupancy is bound to one specific `CONFIRMED` Reservation by check-in, allowed only within its interval `[start, end)` on a `FREE` spot. Check-out ends that Reservation (`COMPLETED`), which then no longer blocks the rest of its interval. Confirm, Approve, Cancel, Reject and expiry never change the spot state.
 
 ---
 
@@ -257,8 +270,8 @@ so exclusivity of the ParkingSpot is checked here; concurrency is a
 business outcome, not just an implementation detail.
 
 Assumption / unknown / TBD:
-TBD — who may confirm (the owner of the Reservation, an admin, or both);
-"authorized" is not yet defined.
+Resolved in v0.2.1 — only the active Driver who owns the Reservation may
+confirm (section 0, Autorizace).
 Assumption — Confirm is rejected once Reservation.start has been reached
 or passed (consistent with BR-03 time semantics; decided in this
 revision).
@@ -270,8 +283,8 @@ TBD — which of several conflicting concurrent confirmations wins; only
 "at most one" is specified, no fairness/ordering rule is defined.
 Concurrent Confirm vs. Cancel is governed by BR-03 (at most one of them
 succeeds); no further TBD here, OP-04 must stay consistent with it.
-Assumption — "ParkingSpot is active" is a ParkingSpot attribute; its
-definition and who changes it are not specified yet.
+Resolved in v0.2.1 — "ParkingSpot is active" means state ≠ OUT_OF_SERVICE
+(BR-06); only an Approver changes it (OP-06).
 ```
 
 ### OP-04 — Cancel Reservation
@@ -350,8 +363,9 @@ request safe, while BR-03 prevents cancellation once the reserved interval
 has started.
 
 Assumption / unknown / TBD:
-TBD — who is authorized to cancel (the Reservation owner, an admin, or
-both) is not defined here.
+Resolved in v0.2.1 — only the active Driver who owns the Reservation may
+cancel (section 0, Autorizace). COMPLETED (after check-out, OP-07) is a
+terminal state and cannot be cancelled.
 TBD — whether cancellation sends a notification and how Notification
 Service failure affects the result.
 ```
@@ -415,13 +429,15 @@ stateDiagram-v2
     DRAFT --> CANCELLED: cancel [per BR-03]
     CONFIRMED --> CANCELLED: cancel [per BR-03]
     PENDING_APPROVAL --> CANCELLED: cancel [per BR-03]
+    CONFIRMED --> COMPLETED: check-out [after check-in, OP-07 v0.2.1]
 ```
 
 Poznámky:
 - Ze stavů `CONFIRMED`, `CANCELLED`, `REJECTED`, `EXPIRED` nevede žádný přechod `confirm`/`approve`/`reject`; takové požadavky jsou odmítnuty (OP-03/OP-05).
 - Zamítnutý `confirm`/`approve` (neaktivní spot, překryv, souběh, start již nastal nebo uplynul) stav nemění — Reservation zůstává v původním stavu (`DRAFT`, resp. `PENDING_APPROVAL`).
 - `cancel` už `CANCELLED` rezervace je idempotentní úspěch bez změny stavu (BR-03); `cancel` na `REJECTED`/`EXPIRED` je odmítnut (BR-03 v0.2 - nic k vzetí zpět).
-- `REJECTED` a `EXPIRED` jsou terminální - nevede z nich žádný další přechod.
+- `REJECTED`, `EXPIRED` a `COMPLETED` (v0.2.1) jsou terminální - nevede z nich žádný další přechod.
+- Check-in (OP-07) stav rezervace nemění, jen zaznamená `CheckedInAt` a obsadí místo (BR-07).
 - v0.1 (bez `RequiresApproval`) odpovídá přesně hraně `DRAFT --> CONFIRMED` nahoře — nic se pro tyto spoty nemění.
 
 ### 3d. Diagram aktivit — Confirm/Approve větvení (v0.2)
@@ -492,7 +508,7 @@ Cancel request to be rejected (BR-03).
 
 ## 5. Část B — Změna: schvalovací proces
 
-> **Draft — navrhl AI, čeká na schválení týmem** (stejně jako sekce 0 u v0.1). Rozhodnutí níže jsou odůvodněná, ale jsou to návrhy, ne hotová fakta — než zaškrtnete schválení v0.2 na konci této sekce, projděte je.
+> Návrh vznikl v C02 s pomocí AI, tým ho prošel a **schválil 25.10.2026** jako Baseline v0.2 (viz konec sekce). Text níže je zachován v podobě, v jaké byl schválen.
 
 **Změna C02 (zadání):** Některé Resources vyžadují schválení oprávněnou osobou dříve, než se Reservation může stát CONFIRMED. Schválení může být opožděno, zamítnuto nebo může vypršet.
 
@@ -695,8 +711,8 @@ access) rather than by a background process, consistent with "neoptimalizujte
 architekturu v C02" - a real timer/scheduler is an explicit driver for C03.
 
 Assumption / unknown / TBD:
-TBD — who is authorized to approve/reject (a specific admin role, the
-ParkingSpot's owner/operator, or someone else) is not defined.
+Resolved in v0.2.1 — any active Approver may approve/reject (section 0,
+Autorizace); scoping approvers to particular areas is out of scope.
 TBD — exact approval window duration (how long a PENDING_APPROVAL may
 wait before EXPIRED) is not decided; current code uses a placeholder
 value for demonstration only, not a business decision.
@@ -718,3 +734,181 @@ TBD — whether Notification Service failure affects approve/reject
 | Nejistota vs. vymyšlená přesnost (approval window) | ☑ | Přesná délka okna je explicitně TBD v OP-05, kód používá jen placeholder - žádná vymyšlená "oficiální" hodnota se netváří jako rozhodnutí. |
 
 **Schváleno jako Specification Baseline v0.2:** ☑ ano / datum: 25.10.2026 / kým: tým projektu
+
+---
+
+## 6. Baseline v0.2.1 — stav místa, check-in/check-out a autorizace
+
+**Důvod revize:** interní audit 27.11.2026 (`docs/evidence-and-evolution.md`, sekce *C07 — Interní audit*) našel funkce implementované v `eaae325` bez specifikace (správa míst, OUT_OF_SERVICE, check-in/out) a pět defektů, které z toho plynuly: rezervovatelné místo mimo provoz, dvě rozdílná pravidla dostupnosti, globální stav místa, zamčené místo po zamítnutí a check-in bez časového okna. v0.2.1 chování doplňuje do specifikace a opravuje. OP-01 až OP-05 se nemění kromě odkazů na BR-06 a BR-07.
+
+### OP-02 — Check Availability *(dodatek v0.2.1)*
+
+```
+REQ-02 (v0.2.1 dodatek):
+"Not active" in REQ-02 means OUT_OF_SERVICE (BR-06). Additionally, a spot
+that is physically OCCUPIED is unavailable for an interval that contains
+the current time (BR-07). The per-spot query (OP-02) and the per-area
+query use exactly the same rule; the per-area query also reports the
+spot state for the interval: OUT_OF_SERVICE / OCCUPIED as stored,
+RESERVED if a CONFIRMED Reservation overlaps the interval, else FREE.
+
+Verification examples (v0.2.1):
+OUT_OF_SERVICE spot, no reservations → UNAVAILABLE (both queries)
+CONFIRMED [10:00,11:00), area query [10:30,12:00) → UNAVAILABLE, RESERVED
+COMPLETED reservation (checked out) → does not block its remaining interval
+```
+
+### OP-06 — Manage Parking Areas and Spots
+
+```
+Goal / user value:
+Approver (správce parkoviště) maintains the parking areas and spots that
+drivers can reserve, and takes broken spots out of service.
+
+Trigger:
+Authorized Approver creates an area, creates a spot in an area, takes a
+spot out of service, or restores it.
+
+Observable requirement:
+REQ-09:
+The system shall let an active Approver create a ParkingArea (non-empty
+name) and a ParkingSpot in an existing area; a new spot is FREE.
+REQ-10:
+The system shall let an active Approver set a FREE spot to OUT_OF_SERVICE
+and an OUT_OF_SERVICE spot back to FREE (BR-06); any other source state is
+rejected and nothing changes.
+
+Preconditions:
+- user is an active Approver;
+- area exists (spot creation);
+- spot exists and is in the required source state (out-of-service/restore).
+
+Success postcondition:
+- new area/spot is persisted; or the spot state is OUT_OF_SERVICE / FREE.
+
+State change (ParkingSpot):
+[none] → FREE (create)
+FREE → OUT_OF_SERVICE
+OUT_OF_SERVICE → FREE
+
+Referenced rules:
+BR-06
+
+Failure outcomes:
+- Driver or inactive user → reject (unauthorized); nothing changes;
+- empty area name → reject; nothing created;
+- unknown area / spot → reject; nothing changes;
+- OUT_OF_SERVICE from OCCUPIED or OUT_OF_SERVICE, restore from a non
+  OUT_OF_SERVICE state → reject (invalid state); nothing changes.
+
+Verification examples:
+Approver creates area + spot → spot FREE
+Driver creates area → unauthorized
+FREE → out-of-service → OUT_OF_SERVICE; restore → FREE
+OCCUPIED → out-of-service → rejected
+PENDING_APPROVAL then REJECTED reservation → spot still FREE, can go
+  OUT_OF_SERVICE
+
+Assumption / unknown / TBD:
+Taking a spot out of service does not cancel existing CONFIRMED
+Reservations on it; they stay CONFIRMED but cannot be checked in while the
+spot is OUT_OF_SERVICE. Notifying their drivers depends on the Notification
+Service (not integrated) — known limitation.
+RequiresApproval is set only directly in the database for now (no API).
+```
+
+### OP-07 — Check-in / Check-out
+
+```
+Goal / user value:
+Approver records the physical arrival and departure of the vehicle for a
+specific confirmed Reservation, so the spot state reflects reality and a
+finished Reservation releases the spot.
+
+Trigger:
+Authorized Approver performs check-in or check-out of Reservation X.
+
+Observable requirement:
+REQ-11 (check-in):
+The system shall check in a CONFIRMED, not yet checked-in Reservation when
+current time is within [start, end) and its spot is FREE: the spot becomes
+OCCUPIED and the Reservation records the check-in time (BR-07).
+REQ-12 (check-out):
+The system shall check out a checked-in CONFIRMED Reservation whose spot
+is OCCUPIED: the Reservation becomes COMPLETED and the spot becomes FREE.
+
+Preconditions:
+- user is an active Approver;
+- Reservation X exists;
+- check-in: X.state = CONFIRMED, not checked in, start ≤ now < end, spot
+  FREE (not OUT_OF_SERVICE, not OCCUPIED);
+- check-out: X.state = CONFIRMED, checked in, spot OCCUPIED.
+
+Success postcondition:
+- check-in: spot OCCUPIED, X.checkedInAt = now, X.state stays CONFIRMED;
+- check-out: X.state = COMPLETED, spot FREE; X no longer blocks [now, end).
+
+State change:
+ParkingSpot FREE → OCCUPIED (check-in), OCCUPIED → FREE (check-out)
+Reservation CONFIRMED → COMPLETED (check-out)
+
+Referenced rules:
+BR-01, BR-06, BR-07
+
+Failure outcomes:
+- unauthorized user → reject; nothing changes;
+- unknown Reservation → reject;
+- check-in outside [start, end) → reject (outside reservation window);
+  spot and Reservation unchanged;
+- check-in when spot is OUT_OF_SERVICE or OCCUPIED → reject (spot
+  unavailable);
+- check-in twice, or of a non-CONFIRMED Reservation → reject (invalid
+  state);
+- check-out without check-in → reject (invalid state).
+
+Verification examples:
+CONFIRMED [10:00,11:00): check-in at 09:59 → rejected; 10:00 → OCCUPIED;
+  10:59 → OCCUPIED; 11:00 → rejected
+check-in at 10:10, check-out at 10:40 → COMPLETED, spot FREE,
+  availability [11:00,12:00) → AVAILABLE
+two CONFIRMED on one spot, first cancelled → second can still check in
+
+Rationale:
+Binding occupancy to a Reservation (instead of a global spot flag set by
+Confirm) removes the conflict between a time-based allocation and a
+single physical state. Check-in needs no cancel interaction: cancel is
+allowed only before start (BR-03), check-in only from start.
+
+Assumption / unknown / TBD:
+No-show (a CONFIRMED Reservation without check-in) still blocks the spot
+until end — addressed by Change Request CR-01 (C08,
+docs/intent-and-change.md).
+Overstay after end is not modelled: the spot stays OCCUPIED until
+check-out.
+```
+
+### Stavový diagram ParkingSpot — v0.2.1
+
+```mermaid
+stateDiagram-v2
+    [*] --> FREE: create (OP-06)
+    FREE --> OCCUPIED: check-in [CONFIRMED, start <= now < end] (OP-07)
+    OCCUPIED --> FREE: check-out (OP-07)
+    FREE --> OUT_OF_SERVICE: out-of-service (OP-06)
+    OUT_OF_SERVICE --> FREE: restore (OP-06)
+```
+
+`RESERVED` není uložený stav: availability oblasti ho hlásí pro interval, který překrývá `CONFIRMED` rezervace (BR-07).
+
+### Kontrola konzistence v0.2.1
+
+| Kontrola | Stav | Poznámka |
+|---|---|---|
+| OP-02 vs. availability oblasti | ☑ | Jedna metoda `IsSpotAvailableAsync`, test `Spot_and_area_availability_agree_and_area_reports_reserved`. |
+| BR-06 vs. OP-03/OP-05 | ☑ | Confirm/Approve odmítnou `OUT_OF_SERVICE`, stav místa nemění; test `Out_of_service_spot_is_unavailable_and_cannot_be_confirmed`. |
+| BR-07 vs. Cancel (BR-03) | ☑ | Cancel jen před `start`, check-in až od `start` → nepotkají se. |
+| Stavový diagram Reservation vs. OP-07 | ☑ | Přidán přechod `CONFIRMED → COMPLETED`, `COMPLETED` je terminální i pro Cancel. |
+| Autorizace vs. kód | ☑ | Sekce 0 odpovídá `IsReservationOwnerDriverAsync` / `IsActiveApproverAsync` v `ReservationService`. |
+
+**Revize v0.2.1:** připravil Jan Ječmínek 27.11.2026, review v PR `fix/spot-state-audit` (reviewer doplní jméno při schválení PR).
+

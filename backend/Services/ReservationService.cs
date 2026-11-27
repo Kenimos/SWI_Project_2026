@@ -6,7 +6,9 @@ using ParkingReservation.Api.Domain;
 namespace ParkingReservation.Api.Services;
 
 /// <summary>
-/// Implementuje OP-01 až OP-04 podle docs/specification.md.
+/// Implementuje OP-01 až OP-07 podle docs/specification.md (Baseline v0.2.1).
+/// Jediný vlastník všech přechodů stavu Reservation i ParkingSpot (ADR-006,
+/// scripts/check-architecture-conformance.sh).
 /// </summary>
 public class ReservationService
 {
@@ -36,8 +38,11 @@ public class ReservationService
             return CreateReservationResult.Fail(CreateReservationError.Unauthorized);
         }
 
+        var start = ToUtc(request.Start);
+        var end = ToUtc(request.End);
+
         // Precondition: start < end (BR-01).
-        if (request.Start >= request.End)
+        if (start >= end)
         {
             return CreateReservationResult.Fail(CreateReservationError.InvalidInterval);
         }
@@ -66,8 +71,8 @@ public class ReservationService
         {
             SpotId = spot.Id,
             UserId = request.UserId,
-            StartTime = request.Start,
-            EndTime = request.End,
+            StartTime = start,
+            EndTime = end,
             State = ReservationState.Draft
         };
 
@@ -80,6 +85,8 @@ public class ReservationService
     /// <summary>OP-02 — Check Availability.</summary>
     public async Task<AvailabilityResult> CheckAvailabilityAsync(int spotId, DateTime start, DateTime end)
     {
+        start = ToUtc(start);
+        end = ToUtc(end);
         if (start >= end)
         {
             return AvailabilityResult.Fail(AvailabilityError.InvalidInterval);
@@ -91,23 +98,8 @@ public class ReservationService
             return AvailabilityResult.Fail(AvailabilityError.SpotNotFound);
         }
 
-        // REQ-02: neaktivní místo je vždy UNAVAILABLE, bez ohledu na rezervace
-        // (stejný invariant jako v OP-03 - viz konzistenční kontrola v sekci 4).
-        if (!spot.IsActive)
-        {
-            return AvailabilityResult.Ok(available: false);
-        }
-
-        // Jinak unavailable, pokud se interval překrývá s libovolnou CONFIRMED
-        // rezervací téhož místa. Překryv dvou [start,end) intervalů (BR-01):
-        // existing.Start < end && start < existing.End.
-        var hasOverlap = await _db.Reservations.AnyAsync(r =>
-            r.SpotId == spotId &&
-            r.State == ReservationState.Confirmed &&
-            r.StartTime < end &&
-            start < r.EndTime);
-
-        return AvailabilityResult.Ok(!hasOverlap);
+        // REQ-02: stejné pravidlo jako availability oblasti (jedna metoda).
+        return AvailabilityResult.Ok(await IsSpotAvailableAsync(spot, start, end));
     }
 
     /// <summary>
@@ -160,7 +152,7 @@ public class ReservationService
             {
                 reservation.State = ReservationState.PendingApproval;
                 reservation.PendingApprovalSince = _clock.UtcNow;
-                spot.State = ParkingSpotState.Reserved;
+                // PENDING_APPROVAL místo neblokuje (OP-02 v0.2) - stav místa se nemění.
                 await _db.SaveChangesAsync();
 
                 return ConfirmReservationResult.Ok(reservation.State);
@@ -168,12 +160,8 @@ public class ReservationService
 
             // REQ-03: interval nesmí kolidovat s jinou CONFIRMED rezervací
             // téhož místa (BR-01, BR-02).
-            var overlaps = await _db.Reservations.AnyAsync(r =>
-                r.Id != reservation.Id &&
-                r.SpotId == reservation.SpotId &&
-                r.State == ReservationState.Confirmed &&
-                r.StartTime < reservation.EndTime &&
-                reservation.StartTime < r.EndTime);
+            var overlaps = await HasBlockingOverlapAsync(
+                reservation.SpotId, reservation.StartTime, reservation.EndTime, excludeReservationId: reservation.Id);
 
             if (overlaps)
             {
@@ -181,7 +169,6 @@ public class ReservationService
             }
 
             reservation.State = ReservationState.Confirmed;
-            spot.State = ParkingSpotState.Reserved;
             await _db.SaveChangesAsync();
 
             return ConfirmReservationResult.Ok(reservation.State);
@@ -214,8 +201,8 @@ public class ReservationService
 
         var stateBeforeLock = reservation.State;
 
-        // v0.2 (BR-03): REJECTED/EXPIRED jsou terminální, není co rušit.
-        if (reservation.State is ReservationState.Rejected or ReservationState.Expired)
+        // v0.2 (BR-03): REJECTED/EXPIRED/COMPLETED jsou terminální, není co rušit.
+        if (IsTerminalNonCancelled(reservation.State))
         {
             return CancelReservationResult.Fail(CancelReservationError.InvalidState);
         }
@@ -232,7 +219,7 @@ public class ReservationService
                 return CancelReservationResult.Ok(reservation.State);
             }
 
-            if (reservation.State is ReservationState.Rejected or ReservationState.Expired)
+            if (IsTerminalNonCancelled(reservation.State))
             {
                 return CancelReservationResult.Fail(CancelReservationError.InvalidState);
             }
@@ -258,19 +245,9 @@ public class ReservationService
             }
 
             // DRAFT, CONFIRMED nebo PENDING_APPROVAL (v0.2) -> CANCELLED (BR-03).
-            // Pokud mezitím vyhrál Confirm/Approve, reservation.State je teď
-            // CONFIRMED - podle BR-03 je i CONFIRMED->CANCELLED platný přechod.
-            var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
-            if (reservation.State == ReservationState.Confirmed && spot?.State == ParkingSpotState.Occupied)
-            {
-                return CancelReservationResult.Fail(CancelReservationError.InvalidState);
-            }
-
+            // Check-in je možný až od start (BR-07), takže před start rezervace
+            // nikdy není fyzicky obsazená a stav místa se tu neřeší.
             reservation.State = ReservationState.Cancelled;
-            if (spot is not null && spot.State == ParkingSpotState.Reserved)
-            {
-                spot.State = ParkingSpotState.Free;
-            }
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
 
@@ -334,12 +311,8 @@ public class ReservationService
             }
 
             // BR-02: interval nesmí kolidovat s jinou CONFIRMED rezervací téhož místa.
-            var overlaps = await _db.Reservations.AnyAsync(r =>
-                r.Id != reservation.Id &&
-                r.SpotId == reservation.SpotId &&
-                r.State == ReservationState.Confirmed &&
-                r.StartTime < reservation.EndTime &&
-                reservation.StartTime < r.EndTime);
+            var overlaps = await HasBlockingOverlapAsync(
+                reservation.SpotId, reservation.StartTime, reservation.EndTime, excludeReservationId: reservation.Id);
 
             if (overlaps)
             {
@@ -347,7 +320,6 @@ public class ReservationService
             }
 
             reservation.State = ReservationState.Confirmed;
-            spot.State = ParkingSpotState.Reserved;
             reservation.PendingApprovalSince = null;
             await _db.SaveChangesAsync();
 
@@ -411,6 +383,50 @@ public class ReservationService
         reservation.PendingApprovalSince is DateTime since &&
         _clock.UtcNow - since >= _approvalWindow;
 
+    private static bool IsTerminalNonCancelled(ReservationState state) =>
+        state is ReservationState.Rejected or ReservationState.Expired or ReservationState.Completed;
+
+    /// <summary>
+    /// Všechny časy jsou UTC (sekce 0 specifikace). Čas s offsetem se převede,
+    /// čas bez zóny se bere jako UTC.
+    /// </summary>
+    private static DateTime ToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+    };
+
+    /// <summary>BR-02: překrývá interval [start, end) nějakou CONFIRMED rezervaci místa? (BR-01)</summary>
+    private Task<bool> HasBlockingOverlapAsync(int spotId, DateTime start, DateTime end, int? excludeReservationId = null) =>
+        _db.Reservations.AnyAsync(r =>
+            r.SpotId == spotId &&
+            (excludeReservationId == null || r.Id != excludeReservationId) &&
+            r.State == ReservationState.Confirmed &&
+            r.StartTime < end &&
+            start < r.EndTime);
+
+    /// <summary>
+    /// Jediné pravidlo dostupnosti pro OP-02 i availability oblasti (REQ-02, BR-06, BR-07):
+    /// místo mimo provoz je vždy nedostupné; fyzicky obsazené místo je nedostupné pro
+    /// interval obsahující aktuální čas; jinak rozhoduje překryv s CONFIRMED rezervacemi.
+    /// </summary>
+    private async Task<bool> IsSpotAvailableAsync(ParkingSpot spot, DateTime start, DateTime end)
+    {
+        if (!spot.IsActive)
+        {
+            return false;
+        }
+
+        var now = _clock.UtcNow;
+        if (spot.State == ParkingSpotState.Occupied && start <= now && now < end)
+        {
+            return false;
+        }
+
+        return !await HasBlockingOverlapAsync(spot.Id, start, end);
+    }
+
     public async Task<ParkingAreaResult> CreateParkingAreaAsync(CreateParkingAreaRequest request)
     {
         if (!await IsActiveApproverAsync(request.ApproverUserId))
@@ -456,6 +472,8 @@ public class ReservationService
 
     public async Task<ParkingAreaAvailabilityResult> CheckAreaAvailabilityAsync(int areaId, DateTime start, DateTime end)
     {
+        start = ToUtc(start);
+        end = ToUtc(end);
         if (start >= end)
         {
             return ParkingAreaAvailabilityResult.Fail(ParkingAreaAvailabilityError.InvalidInterval);
@@ -473,13 +491,17 @@ public class ReservationService
 
         foreach (var spot in spots)
         {
-            var overlaps = await _db.Reservations.AnyAsync(r =>
-                r.SpotId == spot.Id &&
-                r.State == ReservationState.Confirmed &&
-                r.StartTime < end &&
-                start < r.EndTime);
-            var available = spot.State is not (ParkingSpotState.Occupied or ParkingSpotState.OutOfService) && !overlaps;
-            result.Add(new ParkingAreaAvailabilityItem(spot.Id, spot.Type, spot.State, available));
+            var available = await IsSpotAvailableAsync(spot, start, end);
+
+            // Stav pro daný interval: uložený OutOfService/Occupied má přednost,
+            // Reserved je odvozený z překryvu s CONFIRMED rezervací.
+            var reportedState = spot.State;
+            if (reportedState == ParkingSpotState.Free && await HasBlockingOverlapAsync(spot.Id, start, end))
+            {
+                reportedState = ParkingSpotState.Reserved;
+            }
+
+            result.Add(new ParkingAreaAvailabilityItem(spot.Id, spot.Type, reportedState, available));
         }
 
         return ParkingAreaAvailabilityResult.Ok(result);
@@ -491,6 +513,10 @@ public class ReservationService
     public Task<ParkingSpotOperationResult> RestoreSpotAsync(int spotId, int approverUserId) =>
         SetSpotStateAsync(spotId, approverUserId, ParkingSpotState.Free, ParkingSpotState.OutOfService);
 
+    /// <summary>
+    /// OP-07 — Check-in (BR-07): Approver zaznamená příjezd vozidla ke konkrétní
+    /// CONFIRMED rezervaci v jejím okně [start, end).
+    /// </summary>
     public async Task<ParkingSpotOperationResult> CheckInAsync(int reservationId, int approverUserId)
     {
         if (!await IsActiveApproverAsync(approverUserId))
@@ -504,17 +530,44 @@ public class ReservationService
             return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
         }
 
-        var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
-        if (reservation.State != ReservationState.Confirmed || spot is null || spot.State != ParkingSpotState.Reserved)
+        var spotLock = SpotLocks.Get(reservation.SpotId);
+        await spotLock.WaitAsync();
+        try
         {
-            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
-        }
+            await _db.Entry(reservation).ReloadAsync();
 
-        spot.State = ParkingSpotState.Occupied;
-        await _db.SaveChangesAsync();
-        return ParkingSpotOperationResult.Ok(spot.State);
+            if (reservation.State != ReservationState.Confirmed || reservation.CheckedInAt is not null)
+            {
+                return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+            }
+
+            var now = _clock.UtcNow;
+            if (now < reservation.StartTime || now >= reservation.EndTime)
+            {
+                return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.OutsideReservationWindow);
+            }
+
+            var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
+            if (spot is null || spot.State != ParkingSpotState.Free)
+            {
+                return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.SpotUnavailable);
+            }
+
+            reservation.CheckedInAt = now;
+            spot.State = ParkingSpotState.Occupied;
+            await _db.SaveChangesAsync();
+            return ParkingSpotOperationResult.Ok(spot.State);
+        }
+        finally
+        {
+            spotLock.Release();
+        }
     }
 
+    /// <summary>
+    /// OP-07 — Check-out (BR-07): odjezd vozidla; rezervace přejde do COMPLETED
+    /// a přestane blokovat zbytek svého okna, místo je znovu FREE.
+    /// </summary>
     public async Task<ParkingSpotOperationResult> CheckOutAsync(int reservationId, int approverUserId)
     {
         if (!await IsActiveApproverAsync(approverUserId))
@@ -528,15 +581,30 @@ public class ReservationService
             return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
         }
 
-        var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
-        if (reservation.State != ReservationState.Confirmed || spot is null || spot.State != ParkingSpotState.Occupied)
+        var spotLock = SpotLocks.Get(reservation.SpotId);
+        await spotLock.WaitAsync();
+        try
         {
-            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
-        }
+            await _db.Entry(reservation).ReloadAsync();
 
-        spot.State = ParkingSpotState.Free;
-        await _db.SaveChangesAsync();
-        return ParkingSpotOperationResult.Ok(spot.State);
+            var spot = await _db.ParkingSpots.FindAsync(reservation.SpotId);
+            if (reservation.State != ReservationState.Confirmed ||
+                reservation.CheckedInAt is null ||
+                spot is null ||
+                spot.State != ParkingSpotState.Occupied)
+            {
+                return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+            }
+
+            reservation.State = ReservationState.Completed;
+            spot.State = ParkingSpotState.Free;
+            await _db.SaveChangesAsync();
+            return ParkingSpotOperationResult.Ok(spot.State);
+        }
+        finally
+        {
+            spotLock.Release();
+        }
     }
 
     private async Task<ParkingSpotOperationResult> SetSpotStateAsync(int spotId, int approverUserId, ParkingSpotState target, ParkingSpotState expected)
@@ -552,14 +620,27 @@ public class ReservationService
             return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.NotFound);
         }
 
-        if (spot.State != expected)
+        // Stejný zámek jako Confirm/Approve, které čtou IsActive (BR-06).
+        var spotLock = SpotLocks.Get(spotId);
+        await spotLock.WaitAsync();
+        try
         {
-            return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
-        }
+            await _db.Entry(spot).ReloadAsync();
 
-        spot.State = target;
-        await _db.SaveChangesAsync();
-        return ParkingSpotOperationResult.Ok(spot.State);
+            // OUT_OF_SERVICE jen z FREE (ne při fyzickém obsazení), restore jen z OUT_OF_SERVICE.
+            if (spot.State != expected)
+            {
+                return ParkingSpotOperationResult.Fail(ParkingSpotOperationError.InvalidState);
+            }
+
+            spot.State = target;
+            await _db.SaveChangesAsync();
+            return ParkingSpotOperationResult.Ok(spot.State);
+        }
+        finally
+        {
+            spotLock.Release();
+        }
     }
 
     private async Task<bool> IsReservationOwnerDriverAsync(Reservation reservation, int userId)

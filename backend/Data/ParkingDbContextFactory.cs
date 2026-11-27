@@ -7,8 +7,12 @@ public class ParkingDbContextFactory : IDesignTimeDbContextFactory<ParkingDbCont
 {
     public ParkingDbContext CreateDbContext(string[] args)
     {
+        // Stejná proměnná jako za běhu aplikace, aby `dotnet ef database update`
+        // šlo nasměrovat i na jinou DB bez --connection; výchozí je parking.db.
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+            ?? "Data Source=parking.db";
         var options = new DbContextOptionsBuilder<ParkingDbContext>()
-            .UseSqlite("Data Source=parking.db")
+            .UseSqlite(connectionString)
             .Options;
 
         return new ParkingDbContext(options);

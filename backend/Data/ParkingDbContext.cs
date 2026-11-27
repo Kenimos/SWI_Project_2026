@@ -65,6 +65,9 @@ public class ParkingDbContext : DbContext
                 .HasConversion<string>()
                 .HasMaxLength(20);
 
+            // IsActive je odvozené ze State (BR-06), nemá vlastní sloupec.
+            entity.Ignore(s => s.IsActive);
+
             entity.HasOne(s => s.Area)
                 .WithMany(a => a.Spots)
                 .HasForeignKey(s => s.AreaId)

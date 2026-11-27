@@ -56,9 +56,6 @@ namespace ParkingReservation.Api.Migrations
                     b.Property<int>("AreaId")
                         .HasColumnType("INTEGER");
 
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("INTEGER");
-
                     b.Property<bool>("RequiresApproval")
                         .HasColumnType("INTEGER");
 
@@ -84,6 +81,9 @@ namespace ParkingReservation.Api.Migrations
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CheckedInAt")
+                        .HasColumnType("TEXT");
 
                     b.Property<DateTime>("EndTime")
                         .HasColumnType("TEXT");

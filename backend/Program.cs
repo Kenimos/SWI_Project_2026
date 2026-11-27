@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using ParkingReservation.Api.Contracts;
 using ParkingReservation.Api.Data;
@@ -9,6 +10,10 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
+
+// Enumy v JSON jako text ("Garage", "Standard"), stejně jako v DB; čísla se dál přijímají.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSwaggerGen();
 
 // SQLite databáze; connection string je v appsettings.json (ConnectionStrings:DefaultConnection).
@@ -270,6 +275,8 @@ app.MapPost("/reservations/{id:int}/check-in", async (int id, CheckInReservation
         {
             ParkingSpotOperationError.Unauthorized => Results.Json(new { error = "unauthorized" }, statusCode: 401),
             ParkingSpotOperationError.NotFound => Results.NotFound(new { error = "reservation_not_found" }),
+            ParkingSpotOperationError.OutsideReservationWindow => Results.Json(new { error = "outside_reservation_window" }, statusCode: 409),
+            ParkingSpotOperationError.SpotUnavailable => Results.Json(new { error = "spot_unavailable" }, statusCode: 409),
             _ => Results.Json(new { error = "invalid_state" }, statusCode: 409)
         };
     }

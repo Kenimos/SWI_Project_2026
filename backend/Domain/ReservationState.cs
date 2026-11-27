@@ -14,5 +14,8 @@ public enum ReservationState
     Rejected,
 
     /// <summary>v0.2 - vypršelo schvalovací okno bez rozhodnutí (terminální stav).</summary>
-    Expired
+    Expired,
+
+    /// <summary>v0.2.1 - po check-outu (OP-07); rezervace už neblokuje místo (terminální stav).</summary>
+    Completed
 }

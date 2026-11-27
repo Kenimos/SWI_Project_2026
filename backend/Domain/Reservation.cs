@@ -10,7 +10,7 @@ public class Reservation
 
     public ParkingSpot? Spot { get; set; }
 
-    /// <summary>Uživatel, který rezervaci vytvořil (zatím jen číselná reference, entita User ještě neexistuje).</summary>
+    /// <summary>Uživatel (role Driver), který rezervaci vytvořil a jediný ji smí potvrdit/zrušit.</summary>
     public int UserId { get; set; }
 
     public User? User { get; set; }
@@ -29,4 +29,10 @@ public class Reservation
     /// (REQ-08) - viz docs/specification.md, OP-05.
     /// </summary>
     public DateTime? PendingApprovalSince { get; set; }
+
+    /// <summary>
+    /// OP-07: okamžik check-inu (UTC). Null, dokud vozidlo nepřijelo. Váže
+    /// fyzické obsazení místa ke konkrétní rezervaci (BR-07).
+    /// </summary>
+    public DateTime? CheckedInAt { get; set; }
 }

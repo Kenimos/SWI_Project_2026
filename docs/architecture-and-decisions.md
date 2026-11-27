@@ -43,6 +43,14 @@
 
 **Status:** Implemented as a lazy access-time policy with a 24-hour configuration placeholder. A production timer/scheduler and final business duration remain open decisions.
 
+## ADR-007: Stav parkovacího místa a obsazení (v0.2.1)
+
+**Decision:** `ParkingSpot.State` ukládá jen provozní a fyzický stav (`Free`, `Occupied`, `OutOfService`). `IsActive` není samostatný sloupec, ale odvozená vlastnost `State != OutOfService` (BR-06). `Reserved` se neukládá: dostupnost i hlášený stav v intervalu se počítají z `CONFIRMED` rezervací jednou metodou `IsSpotAvailableAsync` pro OP-02 i pro oblast. Obsazení se váže ke konkrétní rezervaci přes `Reservation.CheckedInAt` (BR-07). Check-out převede rezervaci do `Completed`. Check-in/out i změny provozu místa běží pod stejným `SpotLocks` zámkem jako Confirm.
+
+**Why:** interní audit 27.11.2026 ukázal, že globální stav místa nastavovaný Confirmem odporuje časově omezené alokaci. Zrušení jedné rezervace uvolnilo místo i pro druhou a pending zamklo místo navždy. Dva nezávislé příznaky „aktivní“ (`IsActive` vs. `OutOfService`) navíc vedly k tomu, že místo mimo provoz šlo rezervovat. Alternativa „počítat i Occupied čistě z rezervací“ byla zamítnuta: fyzická přítomnost je fakt, který zadává správce, ne odvozenina z času.
+
+**Status:** Implemented (PR `fix/spot-state-audit`), migrace `SpotStateSingleSourceAndCheckIn` s backfillem, testy `SpotStateConsistencyTests`. Limit: přetažení po `end` (overstay) se nemodeluje.
+
 ## C03 — Architecture Evidence
 
 ### Part A — AS-IS Confirm Reservation
@@ -130,7 +138,7 @@ Runtime mapping: all four logical elements currently run in the ASP.NET Core pro
 
 ### Architecture conformance rule
 
-Rule: only `ReservationService` may mutate `Reservation.State` during application operations. Current repository inspection shows all OP-01–OP-05 state transitions are implemented there; direct state setup appears only in tests and migrations. The repeatable check is `bash scripts/check-architecture-conformance.sh`.
+Rule: only `ReservationService` may assign `Reservation.State` or `ParkingSpot.State` during application operations (OP-01–OP-07). The repeatable check is `bash scripts/check-architecture-conformance.sh`. Since v0.2.1 it scans all of `backend/` except migrations and build output and matches member assignments (`x.State = ...`), not comparisons. A planted assignment outside the service makes it fail with exit code 1 (verified manually). Direct state setup appears only in tests and migrations.
 
 ## C05 — Detailed Design
 
