@@ -56,8 +56,11 @@ Přechody: `FREE → RESERVED` (vznik rezervace) → `OCCUPIED` (příjezd/check
 | `DRAFT` | rezervace vytvořena, ještě nepotvrzena |
 | `CONFIRMED` | rezervace potvrzena, místo je pro dané okno vyhrazeno |
 | `CANCELLED` | rezervace zrušena uživatelem nebo systémem |
+| `PENDING_APPROVAL` | *(v0.2)* místo vyžaduje schválení, rezervace čeká na rozhodnutí Approvera |
+| `REJECTED` | *(v0.2)* Approver žádost zamítl (terminální stav) |
+| `EXPIRED` | *(v0.2)* schvalovací okno vypršelo bez rozhodnutí (terminální stav) |
 
-Stavová operace: `DRAFT → CONFIRMED` (potvrzení rezervace).
+Stavové operace: `DRAFT → CONFIRMED` (potvrzení), u míst s `RequiresApproval` `DRAFT → PENDING_APPROVAL → CONFIRMED / REJECTED / EXPIRED` (OP-05), a `→ CANCELLED` (OP-04). Úplný stavový diagram je v [docs/specification.md](docs/specification.md) (3b).
 
 ### User — uživatel
 Osoba, která vytváří a spravuje rezervace parkovacích míst. Základní role: **řidič** (vytváří rezervace) a **správce parkoviště** (spravuje oblasti a místa).
@@ -176,10 +179,25 @@ Testy si samy vytvoří dočasnou SQLite databázi přes migrace, takže nepotř
 
 ### Vyzkoušení endpointů
 
-Po `dotnet ef database update` je potřeba v DB ručně založit aspoň jedno `ParkingSpot` (zatím bez endpointu na jejich vytváření), např.:
+API spouštěj na pevném portu, aby seděly příklady níže (výchozí launch profile používá jiný port):
 
 ```bash
-sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive, RequiresApproval) VALUES ('Standard', 1, 0);"
+cd backend
+dotnet run --urls http://localhost:5299
+```
+
+Uživatelé zatím nemají endpoint, takže se po `dotnet ef database update` založí ručně: řidič `1` (`Driver`) a správce `9` (`Approver`). Oblast a místo pak založí správce přes API. Enumy se v JSON posílají jako čísla (`type` oblasti: `0` = Garage, `1` = OpenLot, `2` = StreetZone, `3` = ParkAndRide; `type` místa: `0` = Standard, `1` = Compact, `2` = Disabled, `3` = EvCharging, `4` = Motorcycle):
+
+```bash
+sqlite3 backend/parking.db "INSERT INTO Users (Id, Role, IsActive) VALUES (1, 'Driver', 1), (9, 'Approver', 1);"
+
+curl -X POST http://localhost:5299/parking-areas -H "Content-Type: application/json" \
+  -d '{"approverUserId":9,"name":"Garaz A","type":0}'
+# -> {"id":1}
+
+curl -X POST http://localhost:5299/parking-areas/1/spots -H "Content-Type: application/json" \
+  -d '{"approverUserId":9,"type":0}'
+# -> {"id":1,"state":"Free"}
 ```
 
 **OP-01 Create + OP-02 Check Availability + OP-03 Confirm (bez schvalování) + OP-04 Cancel:**
@@ -199,7 +217,10 @@ curl -X POST http://localhost:5299/reservations/1/cancel -H "Content-Type: appli
 **OP-05 Approve/Reject (`ParkingSpot.RequiresApproval = 1`):** Confirm nevede přímo do `Confirmed`, ale do `PendingApproval`; teprve Approve/Reject rozhodne.
 
 ```bash
-sqlite3 backend/parking.db "INSERT INTO ParkingSpots (Type, IsActive, RequiresApproval) VALUES ('Standard', 1, 1);"
+curl -X POST http://localhost:5299/parking-areas/1/spots -H "Content-Type: application/json" \
+  -d '{"approverUserId":9,"type":0}'
+# RequiresApproval zatím nejde nastavit přes API:
+sqlite3 backend/parking.db "UPDATE ParkingSpots SET RequiresApproval = 1 WHERE Id = 2;"
 
 curl -X POST http://localhost:5299/reservations -H "Content-Type: application/json" \
   -d '{"userId":1,"spotId":2,"start":"2030-01-01T10:00:00Z","end":"2030-01-01T11:00:00Z"}'
@@ -231,7 +252,7 @@ Frontend zatím není řešen — složka `frontend/` je připravena jako placeh
 - [x] 1 external/system boundary *(definováno v Project Frame — Notification Service)*
 - [x] kompletní Project Frame *(`docs/intent-and-change.md`)*
 - [x] 1 Q/C/R/L future pressure *(`docs/intent-and-change.md`, kategorie Q)*
-- [ ] 1 reviewed and integrated change *(external PR/review evidence is not present in this workspace)*
+- [x] 1 reviewed and integrated change *(PR #3 `C04_and_others`, review a merge Robin Tokarský, merge commit `39b934a`)*
 - [x] 1 executed engineering spike *(varianta A — Persistence, issue #1)*
 - [x] spike evidence + decision *(`docs/evidence-and-evolution.md`)*
 - [x] definovaný CP1 walking skeleton

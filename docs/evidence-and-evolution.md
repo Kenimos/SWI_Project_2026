@@ -64,3 +64,67 @@ Decision / what changes because of the result:
 - Časy ukládáme a porovnáváme vždy v UTC.
 - Stav rezervace se ukládá jako text kvůli čitelnosti v DB.
 - `SpotId` a `UserId` jsou zatím jen čísla bez cizích klíčů; entity `ParkingSpot` a `User` přibudou, až se tým shodne na doméně. Kontrola překryvu rezervací (common rule) tímto spikem ověřena **není** — zůstává na další iterace (souvisí s vybraným future pressure Q).
+
+## C07 — C06 findings disposition
+
+Assessment od jiného týmu (Kirnig, Kalus, Gala, Carnevale) je v `docs/REPORT.md`. Hodnocená baseline byla `45351cd`, opravy jsou ověřené na `0f039b6`.
+
+| Finding | Verify | Disposition | Closure evidence |
+|---|---|---|---|
+| F1: Cancel po souběžném Confirmu zrušil potvrzenou rezervaci (rozpor OP-04 / BR-03) | VERIFIED FINDING (reprodukováno inspekcí na `45351cd`) | ACCEPT. Striktní výklad: Cancel, který viděl `DRAFT`, po zámku a nalezení `CONFIRMED` vrací `Conflict` | `eaae325`: `ReservationService.CancelReservationAsync`, test v `ReservationConfirmCancelTests.cs` (assert `Conflict`), 53/53 passed |
+| F2: `ParkingSpot` neměl `State`, přestože dokumentace stavy popisovala | VERIFIED FINDING | ACCEPT. Stav místa implementován | `eaae325`: `ParkingSpotState`, migrace `AddUsersParkingAreasAndSpotState`, `ParkingAreaAndSpotStateTests.cs` |
+| F3: chybí C04 Quality & Measurement | REJECTED CANDIDATE (hodnotitelé i tým) | REJECT, no-change | C04 nemělo samostatné zadání, Q1–Q3 = N/A |
+
+Otevřené problémy z assessmentu: žádný z F1–F3 nezůstává otevřený. Riziko `SpotLocks` (jen jedna instance) zůstává vědomě přijaté v ADR-006.
+
+## C08 — Before baseline a test cases
+
+**Before baseline:** tag `c08-before` (kód shodný s `0f039b6`, spec Baseline v0.2 BR-01/BR-02/BR-03, ADR-004/ADR-006), schéma `20261025151543_AddUsersParkingAreasAndSpotState`, runtime .NET SDK 8 (EF Core 8.0.10), testovací DB izolovaný SQLite soubor vytvořený `dotnet ef database update --connection "Data Source=<tmp>/tc.db"`, aplikace `dotnet run --no-build --urls http://localhost:5299` s `ConnectionStrings__DefaultConnection` na tento soubor. Žádná tajemství. Seed: `Users(1, Driver)`, `Users(9, Approver)`, `ParkingAreas(1)`, `ParkingSpots(1, Standard, IsActive=1, RequiresApproval=0, Free)`. Před každým TC se DB obnovila z prázdné kopie po migraci. Provedeno 27. 11. 2026 ~16:23 UTC, provedl Jan Ječmínek.
+
+Autoritativní stav se čte přímo z SQLite (`sqlite3`), ne jen z HTTP odpovědi. Kontrolní dotaz BR-02:
+`SELECT count(*) FROM Reservations a JOIN Reservations b ON a.Id<b.Id AND a.SpotId=b.SpotId AND a.State='Confirmed' AND b.State='Confirmed' AND a.StartTime<b.EndTime AND b.StartTime<a.EndTime;`
+
+### C08 / TC-C08-01 — sousední rezervace lze obě potvrdit
+
+Test basis: BR-01 (`[start, end)`), BR-02, OP-03 @ v0.2. Riziko: N/A.
+
+| # | Action / input | Expected BEFORE execution | Actual AFTER execution | Evidence |
+|---|---|---|---|---|
+| 1 | Reset DB, seed; Create + Confirm B1 [10:00, 11:00), Create B2 [11:00, 12:00) (2030-01-01, UTC) | B1 `Confirmed`, B2 `Draft` | `{"id":1,"state":"Confirmed"}`, `{"id":2,"state":"Draft"}` | výstup níže |
+| 2 | Readback z DB | `1 Confirmed 10–11`, `2 Draft 11–12` | `1\|1\|10:00\|11:00\|Confirmed`, `2\|1\|11:00\|12:00\|Draft` | sqlite3 |
+| 3 | `POST /reservations/2/confirm {"userId":1}` | úspěch | `{"id":2,"state":"Confirmed"}` HTTP 200 | curl |
+| 4 | Readback z DB + BR-02 dotaz | obě `Confirmed`, 0 překryvů | obě `Confirmed`, `confirmed_overlaps = 0` | sqlite3 |
+| 5 | Opakovatelnost | reset z prázdné kopie DB | provedeno (stejná prázdná kopie pro TC-02) | — |
+
+Result: **PASS**.
+
+### C08 / TC-C08-02 — překrývající potvrzení je odmítnuto
+
+Test basis: BR-02, OP-03 failure outcome `overlap` @ v0.2. Riziko: double booking (pressure Q).
+
+| # | Action / input | Expected BEFORE execution | Actual AFTER execution | Evidence |
+|---|---|---|---|---|
+| 1 | Reset DB, seed; Create + Confirm B1 [10:00, 11:00), Create B2 [10:30, 11:30) | B1 `Confirmed`, B2 `Draft` | `Confirmed`, `Draft` | curl |
+| 2 | Readback z DB | časově se překrývají, potvrzená je jen B1 | `1 Confirmed 10:00–11:00`, `2 Draft 10:30–11:30` | sqlite3 |
+| 3 | `POST /reservations/2/confirm {"userId":1}` | odmítnuto jako `overlap` (409) | `{"error":"overlap"}` HTTP 409 | curl |
+| 4 | Readback po pokusu | B1 beze změny, B2 **není** `Confirmed`, 0 překryvů | B1 `Confirmed`, B2 `Draft`, `confirmed_overlaps = 0` | sqlite3 |
+| 5 | Opakovatelnost | reset z prázdné kopie | provedeno | — |
+
+Result: **PASS**. Limit: test běží s jedním požadavkem, souběžné Confirmy pokrývá unit test souběhu v `ReservationConfirmCancelTests.cs`.
+
+### C08 / TC-C08-03 — sonda současného chování při nedostavení (motivace CR-01)
+
+Test basis: chování baseline v0.2, ne nový požadavek. Ukazuje omezení popsané v CR-01.
+
+Setup: přímý zápis do DB, protože přes API nejde potvrdit rezervaci s `start` v minulosti: B1 `Confirmed` [2026-11-27 14:00, 20:00) bez check-inu, místo `Reserved`. Čas běhu 16:23:51 UTC, tedy 2 h 23 min po `start`.
+
+| # | Action | Observed |
+|---|---|---|
+| 1 | `GET /parking-spots/1/availability?start=17:00&end=18:00` | `{"available":false}`: místo blokované |
+| 2 | Driver `POST /reservations/1/cancel` | `{"error":"too_late"}` HTTP 409 (BR-03) |
+| 3 | Approver `POST /reservations/1/check-in` | `{"id":1,"state":"Occupied"}` HTTP 200: check-in nemá časový limit |
+| 4 | Readback | `Confirmed`, místo `Occupied` |
+
+Závěr: nedostavení nelze v systému nijak vyřešit, místo zůstává blokované až do `end`. To je výchozí stav pro CR-01 (`docs/intent-and-change.md`).
+
+**Postřeh pro C09 (reprodukovatelnost):** `ParkingDbContextFactory` (design-time) má natvrdo `Data Source=parking.db`, takže `dotnet ef database update` ignoruje `ConnectionStrings__DefaultConnection` a pro jinou DB je potřeba `--connection`. README a příklady s ručním `INSERT INTO ParkingSpots` na této baseline nefungovaly: chyběl `AreaId`/`State` a uživatelé. Opraveno v README v tagu `c08-before` a ověřeno průchodem celého postupu na čisté DB.

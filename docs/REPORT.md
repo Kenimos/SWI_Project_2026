@@ -116,6 +116,10 @@ Result: REJECTED CANDIDATE — nejde o chybu projektu; Q1–Q3 = N/A.
 
 | Finding | ACCEPTED / REJECTED / DEFERRED | Reason/evidence | Action / no-change |
 |---|---|---|---|
-| F1 | | | |
-| F2 | | | |
-| F3 | | | |
+| F1 | ACCEPTED | VERIFIED FINDING, reprodukováno na `45351cd`: `CancelReservationAsync` po zámku zrušil i rezervaci, kterou mezitím potvrdil souběžný Confirm. Specifikace si odporovala (OP-04 failure outcome vs. obecný přechod `CONFIRMED → CANCELLED`). Tým rozhodl pro striktní výklad BR-03: Cancel, který viděl `DRAFT`, ale po zámku najde `CONFIRMED`, vrací `Conflict`. | Opraveno v `eaae325`: `backend/Services/ReservationService.cs` (porovnání `stateBeforeLock` se stavem po `ReloadAsync`, návrat `CancelReservationError.Conflict`), regresní test `tests/ParkingReservation.Api.Tests/ReservationConfirmCancelTests.cs` (assert na `Conflict`). Celá sada: 53 passed / 0 failed na `0f039b6`. Owner: Marek Šikula. |
+| F2 | ACCEPTED | VERIFIED FINDING: na `45351cd` `ParkingSpot` neměl atribut `State`, přestože README a Project Frame popisovaly `FREE / RESERVED / OCCUPIED / OUT_OF_SERVICE`. Tým zvolil implementovat stav místa (je potřeba pro check-in/out a `OUT_OF_SERVICE`), ne jen upravit dokumentaci. | Opraveno v `eaae325`: `backend/Domain/ParkingSpotState.cs`, `ParkingSpot.State`, migrace `20261025151543_AddUsersParkingAreasAndSpotState`, přechody v `ReservationService` (Confirm/Approve → `Reserved`, check-in → `Occupied`, check-out/Cancel → `Free`), testy `ParkingAreaAndSpotStateTests.cs`. Owner: Marek Šikula. |
+| F3 | REJECTED | REJECTED CANDIDATE: souhlasíme s hodnotiteli, C04 Quality & Measurement nemělo v dodaných zadáních samostatné cvičení, takže Q1–Q3 = N/A a nejde o vadu projektu. | No-change. Vybraný future pressure Q (souběh Confirm) je pokrytý testem souběžného potvrzení a rizikem `SpotLocks` (single-instance) v `docs/architecture-and-decisions.md`, ADR-006. |
+
+Poznámka k PARTLY bodům: B1 (zastaralé README, sekce 9), A1 (chybějící C03 architektonický dokument) a A3 (chybějící sekvenční diagram) byly doplněny v `eaae325` (`docs/architecture-and-decisions.md`, sekce *C03 — Architecture Evidence*), README dále opraveno v commitu tagu `c08-before`.
+
+Disposition zapsal: Jan Ječmínek, 27. 11. 2026. Hodnocená baseline `45351cd`, opravy ověřeny na `0f039b6`.
