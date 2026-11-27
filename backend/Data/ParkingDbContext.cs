@@ -21,7 +21,7 @@ public class ParkingDbContext : DbContext
     {
         modelBuilder.Entity<Reservation>(entity =>
         {
-            // Stav se v DB ukládá jako text ("Confirmed"), ne jako číslo – v DB je pak čitelný.
+            // The state is stored in the DB as text ("Confirmed"), not as a number, so the DB stays readable.
             entity.Property(r => r.State)
                   .HasConversion<string>()
                   .HasMaxLength(20);
@@ -64,6 +64,9 @@ public class ParkingDbContext : DbContext
             entity.Property(s => s.State)
                 .HasConversion<string>()
                 .HasMaxLength(20);
+
+            // IsActive is derived from State (BR-06) and has no column of its own.
+            entity.Ignore(s => s.IsActive);
 
             entity.HasOne(s => s.Area)
                 .WithMany(a => a.Spots)

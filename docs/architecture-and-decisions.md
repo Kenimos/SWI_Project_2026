@@ -2,46 +2,54 @@
 
 ## ADR-001: Backend stack
 
-**Decision:** Backend je postaven na ASP.NET Core Web API (.NET 8), s Entity Framework Core a SQLite jako databází.
+**Decision:** The backend is built on ASP.NET Core Web API (.NET 8), with Entity Framework Core and SQLite as the database.
 
 **Why:**
-- .NET 8 je aktuálně nainstalované LTS SDK v prostředí týmu (.NET 9 zatím není k dispozici).
-- EF Core + SQLite umožňuje rychlý start bez nutnosti spravovat externí databázový server, zatímco EF Core abstrakce zůstává stejná i při pozdějším přechodu na jiný SQL engine (např. PostgreSQL).
-- Swagger/OpenAPI je součástí výchozí šablony a usnadní ruční testování endpointů bez frontendové vrstvy.
+- .NET 8 is the LTS SDK currently installed in the team's environment (.NET 9 is not available yet).
+- EF Core + SQLite allows a quick start without managing an external database server, while the EF Core abstraction stays the same when moving to another SQL engine later (e.g. PostgreSQL).
+- Swagger/OpenAPI is part of the default template and makes manual endpoint testing easy without a frontend layer.
 
 **Status:** Historical C01 decision. The current implementation uses the selected stack and now contains the reservation, user, parking-area, and spot models.
 
 ## ADR-002: Frontend
 
-**Decision:** Frontend zatím není řešen, složka `frontend/` je připravena jako placeholder.
+**Decision:** The frontend is not addressed yet; the `frontend/` folder is prepared as a placeholder.
 
-**Why:** tým se ještě neshodl na technologii/frameworku, priorita C01 je backend doména a datový model.
+**Why:** the team has not agreed on a technology/framework yet; the C01 priority is the backend domain and data model.
 
-**Status:** open — doplní se, až padne rozhodnutí.
+**Status:** open — to be completed once a decision is made.
 
-## ADR-003: Persistence Reservation (výsledek spike A)
+## ADR-003: Reservation persistence (result of spike A)
 
-**Decision:** Schéma DB se spravuje přes EF Core migrace; stav rezervace se ukládá jako text; časy jsou v UTC; soubor `parking.db` se necommituje.
+**Decision:** The DB schema is managed through EF Core migrations; the reservation state is stored as text; times are in UTC; the `parking.db` file is not committed.
 
-**Why:** spike A (viz [evidence-and-evolution.md](evidence-and-evolution.md)) ověřil, že uložení a znovunačtení `Reservation` přes EF Core + SQLite funguje včetně migrací. Text ve sloupci `State` je čitelnější při ručním prohlížení DB než číslo enumu.
+**Why:** spike A (see [evidence-and-evolution.md](evidence-and-evolution.md)) verified that storing and reloading a `Reservation` through EF Core + SQLite works, including migrations. Text in the `State` column is easier to read when inspecting the DB manually than an enum number.
 
 **Status:** Partially superseded. Reservation/spot persistence, a `ParkingSpot` foreign key, user persistence, and overlap checks are implemented. Parking-area scope and production authorization are now represented by the current implementation, while external identity remains out of scope.
 
-## ADR-004: Souběh Confirm/Cancel (OP-03, OP-04)
+## ADR-004: Confirm/Cancel concurrency (OP-03, OP-04)
 
-**Decision:** `ReservationService` serializuje Confirm a Cancel přes `SpotLocks` — in-memory `SemaphoreSlim` na jedno `ParkingSpot.Id`. "Current time" jde přes `IClock` (ne přímo `DateTime.UtcNow`), aby šlo v testech řídit čas deterministicky.
+**Decision:** `ReservationService` serializes Confirm and Cancel through `SpotLocks` — an in-memory `SemaphoreSlim` per `ParkingSpot.Id`. "Current time" goes through `IClock` (not `DateTime.UtcNow` directly), so tests can control time deterministically.
 
-**Why:** REQ-04 a BR-03 vyžadují, aby při souběžných požadavcích na totéž místo vyhrál nejvýše jeden. Pro C02 stačí zámek v rámci jednoho procesu — ověřeno testem se dvěma skutečně paralelními `Task`.
+**Why:** REQ-04 and BR-03 require that at most one of concurrent requests for the same spot wins. For C02 a lock within one process is sufficient — verified by a test with two truly parallel `Task`s.
 
 **Status:** Implemented for the single-instance baseline. It functions only inside one application instance/database; multi-instance deployment still needs a database-authoritative strategy. The current branch additionally rejects a stale Cancel after Confirm has persisted first.
 
-## ADR-005: Schvalovací proces (OP-05, v0.2)
+## ADR-005: Approval workflow (OP-05, v0.2)
 
-**Decision:** `ParkingSpot.RequiresApproval` (bool) rozhoduje, jestli Confirm (OP-03) vede přímo do `CONFIRMED`, nebo do `PENDING_APPROVAL`. Expirace schvalovacího okna (REQ-08) se řeší líně — kontroluje se při každém dalším dotyku rezervace (Approve/Reject/Cancel), ne časovačem/background jobem. Délka okna je konfigurovatelná (`Reservations:ApprovalWindowHours` v `appsettings.json`), defaultně 24h.
+**Decision:** `ParkingSpot.RequiresApproval` (bool) decides whether Confirm (OP-03) leads directly to `CONFIRMED` or to `PENDING_APPROVAL`. Expiry of the approval window (REQ-08) is handled lazily — checked on every subsequent access to the reservation (Approve/Reject/Cancel), not by a timer/background job. The window length is configurable (`Reservations:ApprovalWindowHours` in `appsettings.json`), 24 h by default.
 
-**Why:** Zadání C02 výslovně nechce architektonickou optimalizaci v této fázi ("Neřešte ještě ideální architekturu"). Líné vyhodnocení je nejjednodušší způsob, jak pozorovatelné chování (REQ-08) demonstrovat bez stavění schedulerového subsystému.
+**Why:** The C02 assignment explicitly does not want architectural optimization at this stage ("do not solve the ideal architecture yet"). Lazy evaluation is the simplest way to demonstrate the observable behavior (REQ-08) without building a scheduler subsystem.
 
 **Status:** Implemented as a lazy access-time policy with a 24-hour configuration placeholder. A production timer/scheduler and final business duration remain open decisions.
+
+## ADR-007: Parking spot state and occupancy (v0.2.1)
+
+**Decision:** `ParkingSpot.State` stores only the operational and physical state (`Free`, `Occupied`, `OutOfService`). `IsActive` is not a separate column but a derived property `State != OutOfService` (BR-06). `Reserved` is not stored: availability and the reported state for an interval are computed from `CONFIRMED` reservations by one method, `IsSpotAvailableAsync`, for both OP-02 and the area. Occupancy is bound to a specific reservation through `Reservation.CheckedInAt` (BR-07). Check-out moves the reservation to `Completed`. Check-in/out and spot operability changes run under the same `SpotLocks` lock as Confirm.
+
+**Why:** the internal audit of 27 Nov 2026 showed that a global spot state set by Confirm contradicts a time-bound allocation. Cancelling one reservation released the spot for another one too, and a pending request locked the spot forever. Two independent "active" flags (`IsActive` vs. `OutOfService`) also meant that an out-of-service spot could be reserved. The alternative "derive Occupied purely from reservations as well" was rejected: physical presence is a fact entered by the manager, not something derived from time.
+
+**Status:** Implemented (PR `fix/spot-state-audit`), migration `SpotStateSingleSourceAndCheckIn` with backfill, tests `SpotStateConsistencyTests`. Limitation: overstay after `end` is not modelled.
 
 ## C03 — Architecture Evidence
 
@@ -130,7 +138,7 @@ Runtime mapping: all four logical elements currently run in the ASP.NET Core pro
 
 ### Architecture conformance rule
 
-Rule: only `ReservationService` may mutate `Reservation.State` during application operations. Current repository inspection shows all OP-01–OP-05 state transitions are implemented there; direct state setup appears only in tests and migrations. The repeatable check is `bash scripts/check-architecture-conformance.sh`.
+Rule: only `ReservationService` may assign `Reservation.State` or `ParkingSpot.State` during application operations (OP-01–OP-07). The repeatable check is `bash scripts/check-architecture-conformance.sh`. Since v0.2.1 it scans all of `backend/` except migrations and build output and matches member assignments (`x.State = ...`), not comparisons. A planted assignment outside the service makes it fail with exit code 1 (verified manually). Direct state setup appears only in tests and migrations.
 
 ## C05 — Detailed Design
 

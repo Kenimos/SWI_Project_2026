@@ -95,6 +95,46 @@ public class ApiEndpointTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(_spotId, body[0].GetProperty("spotId").GetInt32());
         Assert.True(body[0].GetProperty("available").GetBoolean());
+        Assert.Equal("Free", body[0].GetProperty("state").GetString());
+        Assert.Equal("Standard", body[0].GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Enum_values_are_accepted_as_strings()
+    {
+        var response = await _client.PostAsJsonAsync("/parking-areas", new
+        {
+            approverUserId = 9,
+            name = "String enum area",
+            type = "StreetZone"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Check_in_before_start_returns_outside_reservation_window()
+    {
+        var reservation = new Reservation
+        {
+            SpotId = _spotId,
+            UserId = 1,
+            StartTime = new DateTime(2030, 1, 1, 10, 0, 0, DateTimeKind.Utc),
+            EndTime = new DateTime(2030, 1, 1, 11, 0, 0, DateTimeKind.Utc),
+            State = ReservationState.Confirmed
+        };
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<ParkingDbContext>();
+            db.Reservations.Add(reservation);
+            await db.SaveChangesAsync();
+        }
+
+        var response = await _client.PostAsJsonAsync($"/reservations/{reservation.Id}/check-in", new { approverUserId = 9 });
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("outside_reservation_window", body.GetProperty("error").GetString());
     }
 
     [Fact]

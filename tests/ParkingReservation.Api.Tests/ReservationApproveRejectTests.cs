@@ -7,10 +7,10 @@ using ParkingReservation.Api.Services;
 namespace ParkingReservation.Api.Tests;
 
 /// <summary>
-/// C02 v0.2 verification examples pro OP-05 Approve Reservation (approve
-/// i reject větev) a pro rozšíření OP-03 (Confirm -> PENDING_APPROVAL) a
-/// OP-04 (Cancel na PENDING_APPROVAL, zákaz Cancel na REJECTED/EXPIRED),
-/// viz docs/specification.md, sekce 5.
+/// C02 v0.2 verification examples for OP-05 Approve Reservation (approve
+/// and reject branch) and for the extensions of OP-03 (Confirm -> PENDING_APPROVAL)
+/// and OP-04 (Cancel on PENDING_APPROVAL, no Cancel on REJECTED/EXPIRED),
+/// see docs/specification.md, section 5.
 /// </summary>
 public class ReservationApproveRejectTests : IDisposable
 {
@@ -57,7 +57,7 @@ public class ReservationApproveRejectTests : IDisposable
         return reservation;
     }
 
-    // ---------- OP-03 dodatek: Confirm na RequiresApproval spotu ----------
+    // ---------- OP-03 addendum: Confirm on a RequiresApproval spot ----------
 
     [Fact]
     public async Task Confirm_on_approval_required_spot_goes_to_pending_approval_not_confirmed()
@@ -75,13 +75,13 @@ public class ReservationApproveRejectTests : IDisposable
     public async Task Confirm_on_approval_required_spot_ignores_existing_overlap_defers_to_approve()
     {
         // "even if another CONFIRMED Reservation already overlaps - the conflict
-        // is caught later, at Approve" (OP-03 v0.2 dodatek verification example).
+        // is caught later, at Approve" (OP-03 v0.2 addendum verification example).
         var spot = await AddApprovalSpotAsync();
         await AddDraftAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
         var confirmedBlocker = await _service.CreateReservationAsync(
             new CreateReservationRequest(1, spot.Id, Now.AddHours(1), Now.AddHours(2)));
-        // Pozn.: blocker musí samo projít Confirm na non-approval spotu by nešlo,
-        // tak ho rovnou nastavíme CONFIRMED přímo přes DB - simuluje existující alokaci.
+        // Note: the blocker could not go through Confirm itself on an approval spot,
+        // so we set it CONFIRMED directly in the DB - simulates an existing allocation.
         var blockerEntity = await _db.Reservations.FindAsync(confirmedBlocker.ReservationId);
         blockerEntity!.State = ReservationState.Confirmed;
         await _db.SaveChangesAsync();
@@ -114,7 +114,7 @@ public class ReservationApproveRejectTests : IDisposable
     {
         var spot = await AddApprovalSpotAsync();
 
-        // Existující CONFIRMED [1h,2h) na stejném místě (nastaveno přímo přes DB).
+        // Existing CONFIRMED [1h,2h) on the same spot (set directly in the DB).
         _db.Reservations.Add(new Reservation
         {
             SpotId = spot.Id,
@@ -142,7 +142,7 @@ public class ReservationApproveRejectTests : IDisposable
         var draft = await AddDraftAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
         await _service.ConfirmReservationAsync(draft.Id, userId: 1);
 
-        _clock.UtcNow = Now.AddHours(3); // start už uplynul
+        _clock.UtcNow = Now.AddHours(3); // start has already passed
 
         var result = await _service.ApproveReservationAsync(draft.Id, approverUserId: 9);
 
@@ -195,10 +195,10 @@ public class ReservationApproveRejectTests : IDisposable
     [Fact]
     public async Task Reject_succeeds_even_when_spot_would_overlap_or_be_inactive()
     {
-        // REQ-07: reject vždy uspěje bez ohledu na overlap/aktivitu (na rozdíl od approve).
+        // REQ-07: reject always succeeds regardless of overlap/activity (unlike approve).
         var spot = await AddApprovalSpotAsync(isActive: false);
         var draft = await AddDraftAsync(spot.Id, Now.AddHours(1), Now.AddHours(2));
-        // Confirm by na neaktivním spotu selhal dřív, tak PENDING_APPROVAL nastavíme přímo.
+        // Confirm would fail earlier on an inactive spot, so we set PENDING_APPROVAL directly.
         draft.State = ReservationState.PendingApproval;
         draft.PendingApprovalSince = Now;
         await _db.SaveChangesAsync();
@@ -227,7 +227,7 @@ public class ReservationApproveRejectTests : IDisposable
         Assert.Equal(ReservationState.Expired, (await _db.Reservations.FindAsync(draft.Id))!.State);
     }
 
-    // ---------- OP-04 dodatek: Cancel na PENDING_APPROVAL / REJECTED / EXPIRED ----------
+    // ---------- OP-04 addendum: Cancel on PENDING_APPROVAL / REJECTED / EXPIRED ----------
 
     [Fact]
     public async Task Cancel_pending_approval_before_start_succeeds()

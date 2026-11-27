@@ -1,18 +1,21 @@
 namespace ParkingReservation.Api.Domain;
 
-/// <summary>Stav rezervace (viz docs/specification.md).</summary>
+/// <summary>Reservation state (see docs/specification.md).</summary>
 public enum ReservationState
 {
     Draft,
     Confirmed,
     Cancelled,
 
-    /// <summary>v0.2 - čeká na rozhodnutí Approvera (OP-05), viz BR-05.</summary>
+    /// <summary>v0.2 - waiting for the Approver's decision (OP-05), see BR-05.</summary>
     PendingApproval,
 
-    /// <summary>v0.2 - Approver žádost zamítl (terminální stav).</summary>
+    /// <summary>v0.2 - the Approver rejected the request (terminal state).</summary>
     Rejected,
 
-    /// <summary>v0.2 - vypršelo schvalovací okno bez rozhodnutí (terminální stav).</summary>
-    Expired
+    /// <summary>v0.2 - the approval window elapsed without a decision (terminal state).</summary>
+    Expired,
+
+    /// <summary>v0.2.1 - after check-out (OP-07); the reservation no longer blocks the spot (terminal state).</summary>
+    Completed
 }

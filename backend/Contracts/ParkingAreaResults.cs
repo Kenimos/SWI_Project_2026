@@ -24,7 +24,13 @@ public enum ParkingSpotOperationError
 {
     Unauthorized,
     NotFound,
-    InvalidState
+    InvalidState,
+
+    /// <summary>OP-07: check-in outside the reservation window [start, end).</summary>
+    OutsideReservationWindow,
+
+    /// <summary>OP-07: the spot is out of service or physically occupied by another vehicle.</summary>
+    SpotUnavailable
 }
 
 public record ParkingSpotOperationResult

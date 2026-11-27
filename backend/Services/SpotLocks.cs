@@ -3,14 +3,14 @@ using System.Collections.Concurrent;
 namespace ParkingReservation.Api.Services;
 
 /// <summary>
-/// Jednoduchý per-proces zámek na jedno ParkingSpot id. Serializuje Confirm
-/// (kontrola overlapu + zápis) a Cancel nad rezervacemi téhož místa, aby
-/// souběžné požadavky nemohly obě "vyhrát" najednou (REQ-04, BR-03).
+/// A simple per-process lock for one ParkingSpot id. It serializes Confirm
+/// (overlap check + write), Cancel, Approve/Reject, check-in/out and spot
+/// operability changes on the same spot, so that concurrent requests cannot
+/// both "win" at once (REQ-04, BR-03).
 ///
-/// Architektonický limit (vědomě přijatý pro C02, viz future pressure Q v
-/// docs/intent-and-change.md): funguje jen uvnitř jednoho procesu/instance.
-/// Při více instancích aplikace nebo DB bez dalšího zámku toto nestačí —
-/// to je architektonický driver pro C03, ne řešení pro teď.
+/// Architectural limit (consciously accepted, see future pressure Q in
+/// docs/intent-and-change.md and ADR-006): it works only inside one process/
+/// instance. With multiple application instances this is not enough.
 /// </summary>
 public static class SpotLocks
 {

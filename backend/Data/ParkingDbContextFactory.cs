@@ -7,8 +7,12 @@ public class ParkingDbContextFactory : IDesignTimeDbContextFactory<ParkingDbCont
 {
     public ParkingDbContext CreateDbContext(string[] args)
     {
+        // Same variable as at application run time, so `dotnet ef database update`
+        // can target another DB without --connection; the default is parking.db.
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
+            ?? "Data Source=parking.db";
         var options = new DbContextOptionsBuilder<ParkingDbContext>()
-            .UseSqlite("Data Source=parking.db")
+            .UseSqlite(connectionString)
             .Options;
 
         return new ParkingDbContext(options);

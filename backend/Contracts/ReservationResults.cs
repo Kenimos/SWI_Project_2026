@@ -2,7 +2,7 @@ using ParkingReservation.Api.Domain;
 
 namespace ParkingReservation.Api.Contracts;
 
-/// <summary>Důvod odmítnutí OP-01 Create Reservation, viz "Alternative / failure outcomes" v docs/specification.md.</summary>
+/// <summary>Reason for rejecting OP-01 Create Reservation, see "Alternative / failure outcomes" in docs/specification.md.</summary>
 public enum CreateReservationError
 {
     Unauthorized,
@@ -25,7 +25,7 @@ public record CreateReservationResult
         new() { Success = false, Error = error };
 }
 
-/// <summary>Důvod odmítnutí OP-02 Check Availability.</summary>
+/// <summary>Reason for rejecting OP-02 Check Availability.</summary>
 public enum AvailabilityError
 {
     SpotNotFound,
@@ -43,7 +43,7 @@ public record AvailabilityResult
     public static AvailabilityResult Fail(AvailabilityError error) => new() { Success = false, Error = error };
 }
 
-/// <summary>Důvod odmítnutí OP-03 Confirm Reservation, viz "Failure outcomes" v docs/specification.md.</summary>
+/// <summary>Reason for rejecting OP-03 Confirm Reservation, see "Failure outcomes" in docs/specification.md.</summary>
 public enum ConfirmReservationError
 {
     NotFound,
@@ -65,7 +65,7 @@ public record ConfirmReservationResult
     public static ConfirmReservationResult Fail(ConfirmReservationError error) => new() { Success = false, Error = error };
 }
 
-/// <summary>Důvod odmítnutí OP-04 Cancel Reservation, viz "Failure outcomes" v docs/specification.md.</summary>
+/// <summary>Reason for rejecting OP-04 Cancel Reservation, see "Failure outcomes" in docs/specification.md.</summary>
 public enum CancelReservationError
 {
     NotFound,
@@ -75,7 +75,7 @@ public enum CancelReservationError
     /// <summary>Confirm persisted first while this request was cancelling a DRAFT (BR-03).</summary>
     Conflict,
 
-    /// <summary>v0.2: REJECTED/EXPIRED jsou terminální - není co rušit (BR-03 v0.2).</summary>
+    /// <summary>v0.2: REJECTED/EXPIRED/COMPLETED are terminal - nothing left to cancel (BR-03 v0.2).</summary>
     InvalidState
 }
 
@@ -90,7 +90,7 @@ public record CancelReservationResult
     public static CancelReservationResult Fail(CancelReservationError error) => new() { Success = false, Error = error };
 }
 
-/// <summary>v0.2 — Důvod odmítnutí OP-05 Approve (approve-větev), viz docs/specification.md.</summary>
+/// <summary>v0.2 — Reason for rejecting OP-05 Approve (approve branch), see docs/specification.md.</summary>
 public enum ApproveReservationError
 {
     NotFound,
@@ -113,7 +113,7 @@ public record ApproveReservationResult
     public static ApproveReservationResult Fail(ApproveReservationError error) => new() { Success = false, Error = error };
 }
 
-/// <summary>v0.2 — Důvod odmítnutí OP-05 Reject (reject-větev), viz docs/specification.md.</summary>
+/// <summary>v0.2 — Reason for rejecting OP-05 Reject (reject branch), see docs/specification.md.</summary>
 public enum RejectReservationError
 {
     NotFound,
